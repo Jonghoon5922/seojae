@@ -28,7 +28,7 @@ Python 3.11+, uv, FastMCP, SQLite FTS5, kiwipiepy, pypdf, python-docx, watchdog,
 - [x] 스펙 확정 (SPEC.md)
 - [x] 환경 세팅 (uv, git)
 - [x] 1단계: 골격·파서·청킹·BM25 색인·`status`/`reindex` (576문서·19,640청크 실측 통과)
-- [ ] 2단계: 검색 축 MCP 도구 4개 + instructions 주입, Claude Code 실사용 검증
+- [x] 2단계: 검색 축 MCP 도구 4개 + instructions 주입 (stdio 실연결 검증 완료)
 - [ ] 3단계: 파일 감시 증분 색인, `init`
 - [ ] 4단계: 인박스 + 정리 축 (`list_inbox`, `file_document`, `undo`, `describe_collection`, `write_collection_readme`)
 - [ ] 5단계: 웹 UI (서재 화면 + 인박스 화면)

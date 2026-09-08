@@ -229,3 +229,134 @@ def get_document(
 
 def failed_documents(conn: sqlite3.Connection) -> list[DocumentSummary]:
     return list_documents(conn, status="failed")
+
+
+# ── 재검색 유도 ────────────────────────────────────────────────────────────
+# BM25는 어휘가 어긋나면 못 찾는다("에러"로 물으면 "예외" 문서를 놓친다).
+# 임베딩을 붙이는 대신 사실을 돌려준다: 각 검색어가 몇 개 문서에 나오는지.
+#   0건  → 이 서재가 쓰지 않는 말이다
+#   과반 → 아무 문서에나 나오는 흔한 말이라 변별력이 없다
+# 둘 중 하나면 그 책장에서 실제로 쓰는 용어를 함께 준다. 말을 바꿔 다시 검색하는
+# 판단은 고객(Claude)이 한다.
+
+# 이 비율 이상의 문서에 나오면 "흔한 말"로 본다.
+# 단 문서가 적으면 비율이 의미가 없어(3건 중 1건이 이미 33%) 최소 규모를 둔다.
+COMMON_TERM_RATIO = 0.25
+COMMON_TERM_MIN_DOCS = 20
+
+
+def term_document_counts(
+    conn: sqlite3.Connection, query: str, collection: str | None = None
+) -> dict[str, int]:
+    """검색어별로 몇 개 문서에 나오는지. 0이면 색인에 없는 말이다."""
+    from .tokenizer import tokenize
+
+    counts: dict[str, int] = {}
+    for token in tokenize(query):
+        if token in counts:
+            continue
+
+        sql = (
+            "SELECT COUNT(DISTINCT c.doc_id) AS n FROM chunks_fts"
+            " JOIN chunks c ON c.id = chunks_fts.rowid"
+            " JOIN documents d ON d.id = c.doc_id"
+            " WHERE chunks_fts MATCH ? AND d.status = 'ok'"
+        )
+        params: list = ['"' + token.replace('"', '""') + '"']
+        if collection:
+            sql += " AND d.collection = ?"
+            params.append(collection)
+
+        counts[token] = conn.execute(sql, params).fetchone()["n"]
+    return counts
+
+
+def unmatched_terms(
+    conn: sqlite3.Connection, query: str, collection: str | None = None
+) -> list[str]:
+    """질의 토큰 중 색인에 아예 없는 것들."""
+    return [t for t, n in term_document_counts(conn, query, collection).items() if n == 0]
+
+
+def _document_total(conn: sqlite3.Connection, collection: str | None) -> int:
+    sql = "SELECT COUNT(*) AS n FROM documents WHERE status = 'ok'"
+    params: list = []
+    if collection:
+        sql += " AND collection = ?"
+        params.append(collection)
+    else:
+        sql += " AND is_inbox = 0"
+    return conn.execute(sql, params).fetchone()["n"]
+
+
+def collection_terms(
+    conn: sqlite3.Connection, collection: str | None = None, limit: int = 25
+) -> list[str]:
+    """그 책장에서 실제로 자주 쓰이는 용어. 재검색 힌트로 쓴다."""
+    sql = "SELECT terms FROM documents WHERE status = 'ok'"
+    params: list = []
+    if collection:
+        sql += " AND collection = ?"
+        params.append(collection)
+    else:
+        sql += " AND is_inbox = 0"
+
+    counter: dict[str, int] = {}
+    for row in conn.execute(sql, params).fetchall():
+        try:
+            pairs = json.loads(row["terms"]) or []
+        except (json.JSONDecodeError, TypeError):
+            continue
+        for term, count in pairs:
+            counter[term] = counter.get(term, 0) + count
+
+    return [t for t, _ in sorted(counter.items(), key=lambda kv: kv[1], reverse=True)[:limit]]
+
+
+def search_hint(
+    conn: sqlite3.Connection,
+    query: str,
+    hits: list[SearchHit],
+    collection: str | None = None,
+    counts: dict[str, int] | None = None,
+) -> str:
+    """검색이 약한 근거로 이뤄졌을 때만, 다시 검색할 방향을 알려준다.
+
+    약한 경우는 셋: 결과가 없다 / 색인에 없는 말이 섞였다 / 검색어가 전부 흔한 말이다.
+    """
+    if counts is None:
+        counts = term_document_counts(conn, query, collection)
+    if not counts:
+        return ""
+
+    missing = [t for t, n in counts.items() if n == 0]
+    matched = {t: n for t, n in counts.items() if n > 0}
+
+    total = _document_total(conn, collection)
+    if total >= COMMON_TERM_MIN_DOCS:
+        threshold = total * COMMON_TERM_RATIO
+        too_common = [t for t, n in matched.items() if n >= threshold]
+        all_common = bool(matched) and len(too_common) == len(matched)
+    else:
+        all_common = False
+
+    if hits and not missing and not all_common:
+        return ""
+
+    parts = []
+    if not hits:
+        parts.append("결과가 없다")
+    if missing:
+        parts.append(f"이 서재가 쓰지 않는 말: {', '.join(missing)}")
+    if all_common:
+        parts.append(
+            f"검색어({', '.join(matched)})가 전부 문서 대부분에 나오는 흔한 말이라 변별력이 없다"
+        )
+
+    terms = collection_terms(conn, collection, limit=25)
+    if terms:
+        where = f"'{collection}' 책장" if collection else "이 서재"
+        parts.append(f"{where}에서 실제로 쓰는 용어: {', '.join(terms)}")
+    parts.append("이 용어들로 바꿔 다시 검색하라")
+
+    return ". ".join(parts) + "."

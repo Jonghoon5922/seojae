@@ -1,0 +1,203 @@
+"""MCP 서버 (stdio).
+
+Claude가 이 서재의 손님으로서 쓰는 도구 4개를 노출한다.
+서버 instructions에 컬렉션 목록과 설명을 주입해서, Claude가 "어느 책장을 열지"를
+먼저 고르게 만든다 — 이게 전체 색인에 top_k를 던지는 방식과의 차이다.
+
+stdout은 MCP 프로토콜 채널이다. 이 모듈은 stdout에 아무것도 출력하지 않는다.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+import threading
+from pathlib import Path
+from typing import Any
+
+from mcp.server.mcpserver import MCPServer
+
+from . import __version__
+from .index import open_db
+from .search import (
+    get_document,
+    list_collections,
+    list_documents,
+    search,
+    search_hint,
+    term_document_counts,
+)
+
+# get_document가 한 번에 돌려주는 최대 분량. 넘으면 잘라내고 section을 쓰라고 알린다.
+MAX_DOCUMENT_CHARS = 40_000
+
+
+def build_instructions(conn: sqlite3.Connection, root: Path) -> str:
+    """컬렉션 설명 목록을 서버 instructions로 만든다 (SPEC 4절)."""
+    collections = list_collections(conn, include_inbox=False)
+
+    lines = [
+        f"로컬 서재({root.name})에 꽂힌 문서를 검색하는 도구다. 답변에는 반드시 출처(source, location)를 함께 밝힌다.",
+        "",
+    ]
+
+    if collections:
+        lines.append("이 서재에는 다음 책장이 있다. 질문에 맞는 책장을 골라 collection 인자와 함께 search를 호출하라.")
+        for c in collections:
+            desc = c.description.replace("\n", " ").strip()
+            if len(desc) > 300:
+                desc = desc[:300] + "…"
+            lines.append(f"- {c.dirname} ({c.doc_count}건): {desc}")
+    else:
+        lines.append("아직 책장이 없다. 루트 폴더 아래에 폴더를 만들고 문서를 넣으면 색인된다.")
+
+    inbox = [c for c in list_collections(conn) if c.is_inbox]
+    if inbox and inbox[0].doc_count:
+        lines.append("")
+        lines.append(f"아직 분류되지 않은 파일이 {inbox[0].doc_count}건 있다 (검색 결과에서는 기본 제외).")
+
+    lines += [
+        "",
+        "검색이 빗나가면 포기하지 말고 표현을 바꿔 다시 검색하라.",
+        "이 서재는 형태소 기반 키워드 검색이라 문서가 쓰는 어휘와 어긋나면 못 찾는다.",
+        "search 응답의 hint에 색인에 없는 단어와 그 책장에서 실제로 쓰이는 용어가 담겨 온다.",
+    ]
+    return "\n".join(lines)
+
+
+def create_server(root: Path) -> MCPServer:
+    """루트 하나에 묶인 MCP 서버를 만든다."""
+    conn = open_db(root, check_same_thread=False)
+    lock = threading.Lock()
+
+    server = MCPServer(
+        name="seojae",
+        title=f"서재 — {root.name}",
+        version=__version__,
+        instructions=build_instructions(conn, root),
+    )
+
+    @server.tool(
+        name="list_collections",
+        description=(
+            "이 서재의 책장(컬렉션) 목록과 각 책장의 설명을 돌려준다. "
+            "어느 책장을 검색할지 고를 때 먼저 호출한다."
+        ),
+    )
+    def list_collections_tool() -> list[dict[str, Any]]:
+        with lock:
+            collections = list_collections(conn, include_inbox=False)
+        return [
+            {
+                "name": c.dirname,
+                "title": c.name,
+                "description": c.description,
+                "tags": c.tags,
+                "doc_count": c.doc_count,
+                "updated": c.updated,
+            }
+            for c in collections
+        ]
+
+    @server.tool(
+        name="list_documents",
+        description="한 책장에 꽂힌 문서 목록. get_document에 넘길 id를 여기서 얻는다.",
+    )
+    def list_documents_tool(collection: str) -> list[dict[str, Any]]:
+        with lock:
+            docs = list_documents(conn, collection=collection)
+        return [
+            {
+                "id": d.id,
+                "title": d.title,
+                "path": d.path,
+                "pages": d.pages,
+                "indexed_at": d.indexed_at,
+            }
+            for d in docs
+        ]
+
+    @server.tool(
+        name="search",
+        description=(
+            "서재 안의 문서를 검색한다. 결과마다 출처(source 파일 경로, location 헤딩/페이지)가 붙는다. "
+            "collection을 지정하면 그 책장만 본다. "
+            "결과가 부실하면 응답의 hint를 읽고 표현을 바꿔 다시 호출하라."
+        ),
+    )
+    def search_tool(
+        query: str,
+        collection: str | None = None,
+        top_k: int = 5,
+        include_inbox: bool = False,
+    ) -> dict[str, Any]:
+        with lock:
+            hits = search(
+                conn, query, collection=collection, top_k=top_k, include_inbox=include_inbox
+            )
+            counts = term_document_counts(conn, query, collection)
+            hint = search_hint(conn, query, hits, collection, counts=counts)
+
+        return {
+            "query": query,
+            # 검색어별로 몇 개 문서에 나오는지. 0이면 이 서재가 쓰지 않는 말이다.
+            "term_document_counts": counts,
+            "results": [
+                {
+                    "text": h.text,
+                    "collection": h.collection,
+                    "source": h.source,
+                    "location": h.location,
+                    "score": h.score,
+                    "document_id": h.doc_id,
+                    "also_in": h.also_in,
+                }
+                for h in hits
+            ],
+            "hint": hint,
+        }
+
+    @server.tool(
+        name="get_document",
+        description=(
+            "문서 원문을 읽는다. section을 주면 그 헤딩·페이지 부분만 읽는다. "
+            "검색 결과의 location을 section으로 넘기면 그 대목만 정확히 볼 수 있다."
+        ),
+    )
+    def get_document_tool(document_id: int, section: str | None = None) -> dict[str, Any]:
+        with lock:
+            doc = get_document(conn, document_id, section=section)
+        if doc is None:
+            return {"error": f"문서 {document_id}를 찾을 수 없다. list_documents로 id를 확인하라."}
+
+        text_parts = []
+        total = 0
+        truncated = False
+        for part in doc["sections"]:
+            piece = f"— {part['location']}\n{part['text']}"
+            if total + len(piece) > MAX_DOCUMENT_CHARS:
+                truncated = True
+                break
+            text_parts.append(piece)
+            total += len(piece)
+
+        result = {
+            "id": doc["id"],
+            "title": doc["title"],
+            "path": doc["path"],
+            "collection": doc["collection"],
+            "pages": doc["pages"],
+            "text": "\n\n".join(text_parts),
+        }
+        if truncated:
+            result["note"] = (
+                f"문서가 길어 앞부분 {MAX_DOCUMENT_CHARS}자만 돌려줬다. "
+                "section 인자로 필요한 부분을 지정해 다시 호출하라."
+            )
+        return result
+
+    return server
+
+
+def serve(root: Path) -> None:
+    """stdio MCP 서버를 띄운다."""
+    create_server(root).run("stdio")

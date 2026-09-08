@@ -97,8 +97,12 @@ def walk_files(base: Path, root: Path) -> Iterator[Path]:
 
 
 def rel(root: Path, path: Path) -> str:
-    """DB에 저장하는 루트 기준 상대 경로 (구분자는 /로 통일)."""
-    return path.resolve().relative_to(root).as_posix()
+    """DB에 저장하는 루트 기준 상대 경로 (구분자는 /로 통일).
+
+    양쪽 다 resolve한다. 루트만 8.3 단축 경로(`NB-240~1`)거나 링크면
+    한쪽만 풀렸을 때 relative_to가 터진다.
+    """
+    return path.resolve().relative_to(root.resolve()).as_posix()
 
 
 def inbox_files(root: Path) -> list[Path]:

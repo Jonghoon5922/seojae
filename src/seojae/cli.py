@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import time
 from pathlib import Path
 from typing import Optional
@@ -177,6 +178,43 @@ def search_cmd(
                 highlight=False,
             )
     conn.close()
+
+
+@app.command()
+def serve(
+    root: str = RootArg,
+    skip_index: bool = typer.Option(False, "--skip-index", help="색인을 건너뛰고 바로 띄운다"),
+) -> None:
+    """색인 후 MCP(stdio) 서버를 띄운다. Claude Code가 이 명령을 실행한다."""
+    # stdout은 MCP 프로토콜 채널이다. 사람에게 보여줄 것은 전부 stderr로 보낸다.
+    # 윈도우 콘솔은 기본이 cp949라 한글 로그가 깨진다. stderr만 UTF-8로 돌린다
+    # (stdout은 프로토콜 채널이라 손대지 않는다).
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError):
+        pass
+    err = Console(stderr=True)
+
+    try:
+        root_path = resolve_root(root)
+    except (FileNotFoundError, NotADirectoryError) as e:
+        err.print(f"[red]{e}[/red]")
+        raise typer.Exit(code=1)
+
+    if not skip_index:
+        conn = open_db(root_path)
+        err.print(f"[dim]서재 색인 중: {root_path}[/dim]")
+        stats = index_root(root_path, conn)
+        err.print(
+            f"[dim]색인 완료 — 새로 읽음 {stats.indexed} / 변경 없음 {stats.skipped} / "
+            f"실패 {stats.failed} / 청크 {stats.chunks}[/dim]"
+        )
+        conn.close()
+
+    from .server import serve as run_server
+
+    err.print(f"[dim]MCP 서버 시작 (stdio) — 루트: {root_path}[/dim]")
+    run_server(root_path)
 
 
 @app.command()

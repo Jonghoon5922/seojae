@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,7 +29,11 @@ from .paths import (
 )
 from .tokenizer import tokenize, tokens_to_fts
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+# 문서마다 보관하는 대표 용어 수. 컬렉션 용어 목록을 만드는 재료이고,
+# 검색어가 색인에 없을 때 Claude에게 "이런 말로 다시 찾아보라"고 알려주는 데 쓴다.
+DOC_TERM_LIMIT = 40
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -60,6 +65,7 @@ CREATE TABLE IF NOT EXISTS documents (
     chunk_count INTEGER NOT NULL DEFAULT 0,
     is_readme   INTEGER NOT NULL DEFAULT 0,
     is_inbox    INTEGER NOT NULL DEFAULT 0,
+    terms       TEXT NOT NULL DEFAULT '[]',
     indexed_at  TEXT NOT NULL DEFAULT '',
     status      TEXT NOT NULL DEFAULT 'ok',
     error       TEXT NOT NULL DEFAULT ''
@@ -111,11 +117,15 @@ def file_hash(path: Path) -> str:
     return h.hexdigest()
 
 
-def open_db(root: Path) -> sqlite3.Connection:
-    """색인 DB 연결. 스키마 버전이 다르면 통째로 새로 만든다."""
+def open_db(root: Path, check_same_thread: bool = True) -> sqlite3.Connection:
+    """색인 DB 연결. 스키마 버전이 다르면 통째로 새로 만든다.
+
+    MCP 서버는 도구 호출이 워커 스레드에서 올 수 있어 check_same_thread=False로 연다.
+    그쪽에서는 호출자가 락으로 감싼다.
+    """
     data_dir(root).mkdir(parents=True, exist_ok=True)
     path = db_path(root)
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, check_same_thread=check_same_thread)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
 
@@ -129,7 +139,7 @@ def open_db(root: Path) -> sqlite3.Connection:
     if version is not None and version != SCHEMA_VERSION:
         conn.close()
         path.unlink(missing_ok=True)
-        conn = sqlite3.connect(path)
+        conn = sqlite3.connect(path, check_same_thread=check_same_thread)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         version = None
@@ -246,12 +256,18 @@ def _index_file(
         return
 
     chunks = build_chunks(parsed.blocks)
+    chunk_tokens = [tokenize(chunk.text) for chunk in chunks]
+
+    counter: Counter[str] = Counter()
+    for tokens in chunk_tokens:
+        counter.update(t for t in tokens if len(t) > 1)
+    terms = json.dumps(counter.most_common(DOC_TERM_LIMIT), ensure_ascii=False)
 
     cursor = conn.execute(
         """
         INSERT INTO documents(collection, path, title, ext, size, mtime, hash, pages,
-                              chunk_count, is_readme, is_inbox, indexed_at, status, error)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'ok','')
+                              chunk_count, is_readme, is_inbox, terms, indexed_at, status, error)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'ok','')
         """,
         (
             collection,
@@ -265,19 +281,20 @@ def _index_file(
             len(chunks),
             int(is_readme),
             int(is_inbox),
+            terms,
             now_iso(),
         ),
     )
     doc_id = cursor.lastrowid
 
-    for chunk in chunks:
+    for chunk, tokens in zip(chunks, chunk_tokens):
         cur = conn.execute(
             "INSERT INTO chunks(doc_id, ordinal, location, text) VALUES(?,?,?,?)",
             (doc_id, chunk.ordinal, chunk.location, chunk.text),
         )
         conn.execute(
             "INSERT INTO chunks_fts(rowid, tokens) VALUES(?,?)",
-            (cur.lastrowid, tokens_to_fts(tokenize(chunk.text))),
+            (cur.lastrowid, tokens_to_fts(tokens)),
         )
 
     stats.indexed += 1
