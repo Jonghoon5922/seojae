@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>서재</title>
+<style>
+  :root {
+    --bg: #faf9f7;
+    --panel: #ffffff;
+    --line: #e3e0da;
+    --ink: #23201c;
+    --dim: #7b756c;
+    --accent: #7a5c3e;
+    --accent-soft: #f2ebe2;
+    --warn: #a8562a;
+    --ok: #3f6f4a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1917;
+      --panel: #232120;
+      --line: #38352f;
+      --ink: #e8e4dd;
+      --dim: #9a938a;
+      --accent: #c9a37a;
+      --accent-soft: #2e2a25;
+      --warn: #d78f5f;
+      --ok: #7fae89;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.65 -apple-system, "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+    padding: 14px 22px; border-bottom: 1px solid var(--line); background: var(--panel);
+    position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 17px; margin: 0; letter-spacing: -0.01em; }
+  header .meta { color: var(--dim); font-size: 13px; }
+  header .spacer { flex: 1; }
+  nav { display: flex; gap: 4px; padding: 0 22px; border-bottom: 1px solid var(--line);
+        background: var(--panel); position: sticky; top: 53px; z-index: 9; }
+  nav button {
+    background: none; border: none; border-bottom: 2px solid transparent;
+    padding: 10px 14px; font: inherit; color: var(--dim); cursor: pointer;
+  }
+  nav button.on { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+  nav .badge {
+    display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 6px;
+    background: var(--accent); color: var(--panel); border-radius: 9px;
+    font-size: 11px; line-height: 17px; text-align: center; vertical-align: 1px;
+  }
+  main { padding: 22px; max-width: 1180px; }
+  .layout { display: grid; grid-template-columns: 250px 1fr; gap: 22px; align-items: start; }
+  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .card + .card { margin-top: 14px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em;
+       color: var(--dim); margin: 0 0 10px; font-weight: 600; }
+
+  .shelf { display: block; width: 100%; text-align: left; background: none; border: none;
+           font: inherit; color: inherit; padding: 7px 9px; border-radius: 7px; cursor: pointer; }
+  .shelf:hover { background: var(--accent-soft); }
+  .shelf.on { background: var(--accent-soft); font-weight: 600; }
+  .shelf .n { float: right; color: var(--dim); font-size: 12px; font-weight: 400; }
+  .shelf .desc { display: block; font-size: 12px; color: var(--dim); font-weight: 400;
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .searchbar { display: flex; gap: 8px; margin-bottom: 14px; }
+  input[type=text], select, textarea {
+    font: inherit; padding: 9px 11px; border: 1px solid var(--line);
+    border-radius: 8px; background: var(--panel); color: var(--ink);
+  }
+  .searchbar input { flex: 1; }
+  button.go, button.act {
+    font: inherit; padding: 9px 15px; border: 1px solid var(--accent);
+    background: var(--accent); color: #fff; border-radius: 8px; cursor: pointer;
+  }
+  button.ghost { background: none; color: var(--accent); }
+  button:disabled { opacity: 0.5; cursor: default; }
+
+  .hit { padding: 14px 0; border-top: 1px solid var(--line); }
+  .hit:first-child { border-top: none; }
+  .src { font-size: 12px; color: var(--dim); display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+  .src .path { color: var(--accent); cursor: pointer; }
+  .src .path:hover { text-decoration: underline; }
+  .src .score { margin-left: auto; }
+  .hit pre {
+    margin: 8px 0 0; white-space: pre-wrap; word-break: break-word;
+    font: inherit; background: var(--bg); padding: 10px 12px; border-radius: 8px;
+  }
+  mark { background: #f6e2b8; color: inherit; border-radius: 2px; padding: 0 1px; }
+  @media (prefers-color-scheme: dark) { mark { background: #6a5326; } }
+
+  .hint { background: var(--accent-soft); border-radius: 8px; padding: 11px 13px;
+          font-size: 13px; margin-bottom: 12px; }
+  .terms { font-size: 12px; color: var(--dim); margin-bottom: 12px; }
+  .terms b { color: var(--ink); font-weight: 600; }
+  .terms .zero { color: var(--warn); }
+
+  .file { padding: 15px 0; border-top: 1px solid var(--line); }
+  .file:first-child { border-top: none; }
+  .file h3 { margin: 0 0 3px; font-size: 15px; }
+  .file .excerpt { font-size: 13px; color: var(--dim); white-space: pre-wrap;
+                   max-height: 6.4em; overflow: hidden; margin: 7px 0 10px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--dim); font-weight: 600; }
+  td.done { color: var(--dim); }
+
+  .empty { color: var(--dim); padding: 26px 0; text-align: center; }
+  .toast {
+    position: fixed; right: 18px; bottom: 18px; background: var(--ink); color: var(--bg);
+    padding: 11px 15px; border-radius: 9px; font-size: 14px; max-width: 460px;
+    opacity: 0; transform: translateY(8px); transition: 0.18s; pointer-events: none;
+  }
+  .toast.on { opacity: 1; transform: none; }
+  .toast.bad { background: var(--warn); color: #fff; }
+  .doc h3 { margin: 0 0 2px; }
+  .doc .row { align-items: flex-start; margin-bottom: 6px; }
+  .doc .section { border-top: 1px solid var(--line); padding: 4px 0 10px; }
+  .doc .loc-toggle {
+    display: block; width: 100%; text-align: left; background: none; border: none;
+    font: inherit; font-size: 13px; color: var(--accent); cursor: pointer;
+    padding: 8px 4px; border-radius: 6px;
+  }
+  .doc .loc-toggle:hover { background: var(--accent-soft); }
+  .doc .caret { display: inline-block; width: 14px; color: var(--dim); }
+  .doc pre { margin: 2px 0 0 18px; white-space: pre-wrap; word-break: break-word; font: inherit; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>서재 <span id="shelfName" class="meta"></span></h1>
+  <span class="meta" id="headMeta"></span>
+  <span class="spacer"></span>
+  <button class="act ghost" id="reindexBtn">재색인</button>
+</header>
+
+<nav>
+  <button data-tab="search" class="on">검색</button>
+  <button data-tab="inbox">인박스<span class="badge" id="inboxBadge" hidden>0</span></button>
+  <button data-tab="moves">기록</button>
+</nav>
+
+<main>
+  <!-- ── 검색 ─────────────────────────────────────────────── -->
+  <section id="tab-search">
+    <div class="layout">
+      <aside>
+        <div class="card">
+          <h2>책장</h2>
+          <div id="shelves"></div>
+        </div>
+        <div class="card" id="failedCard" hidden>
+          <h2>읽지 못한 파일</h2>
+          <div id="failedList" style="font-size:12px;color:var(--dim)"></div>
+        </div>
+      </aside>
+
+      <div>
+        <div class="searchbar">
+          <input type="text" id="q" placeholder="Claude가 쓰는 것과 같은 검색입니다" autofocus>
+          <button class="go" id="searchBtn">검색</button>
+        </div>
+        <div class="card">
+          <div id="searchMeta"></div>
+          <div id="results"><div class="empty">검색어를 입력하세요.</div></div>
+        </div>
+        <div class="card doc" id="docCard" hidden></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 인박스 ───────────────────────────────────────────── -->
+  <section id="tab-inbox" hidden>
+    <div class="card">
+      <h2>분류하지 않은 파일</h2>
+      <div id="inboxList"></div>
+    </div>
+  </section>
+
+  <!-- ── 기록 ─────────────────────────────────────────────── -->
+  <section id="tab-moves" hidden>
+    <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <h2 style="margin:0">파일을 옮긴 기록</h2>
+        <span class="spacer" style="flex:1"></span>
+        <button class="act ghost" id="undoBtn">마지막 작업 되돌리기</button>
+      </div>
+      <div id="movesList"></div>
+    </div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const el = (t, cls, txt) => { const e = document.createElement(t); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+let state = { collection: null, collections: [], lastQuery: "", terms: {} };
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.error) throw new Error(data.error || `요청 실패 (${res.status})`);
+  return data;
+}
+
+let toastTimer;
+function toast(msg, bad) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.toggle("bad", !!bad);
+  t.classList.add("on");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("on"), 3600);
+}
+
+// ── 상태 ────────────────────────────────────────────────────
+async function loadStatus() {
+  const s = await api("/api/status");
+  state.collections = s.collections;
+  $("#shelfName").textContent = s.name;
+  $("#headMeta").textContent =
+    `문서 ${s.document_count}건 · 마지막 색인 ${s.last_indexed_at ? s.last_indexed_at.slice(0, 16).replace("T", " ") : "없음"}`;
+
+  const badge = $("#inboxBadge");
+  badge.textContent = s.inbox_count;
+  badge.hidden = s.inbox_count === 0;
+
+  const box = $("#shelves");
+  box.innerHTML = "";
+  box.appendChild(shelfButton(null, "전체", s.document_count, ""));
+  for (const c of s.collections) {
+    box.appendChild(shelfButton(c.name, c.name, c.doc_count, c.description));
+  }
+
+  const failed = $("#failedCard");
+  failed.hidden = s.failed.length === 0;
+  if (s.failed.length) {
+    $("#failedList").innerHTML = s.failed
+      .map(f => `${esc(f.path)}<br><span style="opacity:.7">${esc(f.error.slice(0, 90))}</span>`)
+      .join("<hr style='border:none;border-top:1px solid var(--line);margin:6px 0'>");
+  }
+}
+
+function shelfButton(name, label, count, desc) {
+  const b = el("button", "shelf" + (state.collection === name ? " on" : ""));
+  b.innerHTML = `<span class="n">${count}</span>${esc(label)}` +
+                (desc ? `<span class="desc">${esc(desc)}</span>` : "");
+  b.onclick = () => {
+    state.collection = name;
+    document.querySelectorAll(".shelf").forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+    if (state.lastQuery) runSearch();
+  };
+  return b;
+}
+
+// ── 검색 ────────────────────────────────────────────────────
+async function runSearch() {
+  const q = $("#q").value.trim();
+  if (!q) return;
+  state.lastQuery = q;
+  $("#docCard").hidden = true;
+
+  const params = new URLSearchParams({ q, top_k: 10 });
+  if (state.collection) params.set("collection", state.collection);
+
+  let data;
+  try {
+    data = await api("/api/search?" + params);
+  } catch (e) { toast(e.message, true); return; }
+
+  state.terms = data.term_document_counts || {};
+  renderSearchMeta(data);
+  renderResults(data.results);
+}
+
+function renderSearchMeta(data) {
+  const meta = $("#searchMeta");
+  meta.innerHTML = "";
+
+  if (data.hint) meta.appendChild(el("div", "hint", data.hint));
+
+  const terms = Object.entries(data.term_document_counts || {});
+  if (terms.length) {
+    const d = el("div", "terms");
+    d.innerHTML = "검색어별 문서 수 (전체 " + data.document_count + "건): " +
+      terms.map(([t, n]) =>
+        `<b class="${n === 0 ? "zero" : ""}">${esc(t)}</b> ${n}`).join(" · ");
+    meta.appendChild(d);
+  }
+}
+
+function highlight(text) {
+  // 검색에 쓰인 토큰을 그대로 강조한다. 형태소라 어간만 걸리는 것이 정상이다.
+  const tokens = Object.keys(state.terms).filter(t => state.terms[t] > 0 && t.length > 1);
+  let out = esc(text);
+  for (const t of tokens) {
+    out = out.replace(new RegExp(esc(t).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"),
+                      m => `<mark>${m}</mark>`);
+  }
+  return out;
+}
+
+function renderResults(results) {
+  const box = $("#results");
+  box.innerHTML = "";
+  if (!results.length) {
+    box.appendChild(el("div", "empty", "결과가 없습니다."));
+    return;
+  }
+  for (const r of results) {
+    const hit = el("div", "hit");
+    const src = el("div", "src");
+
+    const path = el("span", "path", r.source + " · " + r.location);
+    path.onclick = () => openDocument(r.document_id, r.location);
+    src.appendChild(path);
+    src.appendChild(el("span", "score", "score " + r.score));
+    hit.appendChild(src);
+
+    const pre = el("pre");
+    pre.innerHTML = highlight(r.text);
+    hit.appendChild(pre);
+
+    if (r.also_in && r.also_in.length) {
+      hit.appendChild(el("div", "src", `↳ 같은 내용이 ${r.also_in.length}개 문서에 더 있음: ${r.also_in.slice(0, 2).join(", ")}`));
+    }
+    box.appendChild(hit);
+  }
+}
+
+// 문서 전체를 한 번에 펼치지 않는다. 설계서 한 건이 청크 19개(5,000px)를 넘기도 하고
+// PDF는 그보다 훨씬 크다. 찾던 대목을 열어두고 나머지는 목차처럼 접어둔다.
+const EXPAND_ALL_UNDER = 4;
+
+async function openDocument(id, section) {
+  let doc;
+  try { doc = await api(`/api/document/${id}`); }
+  catch (e) { toast(e.message, true); return; }
+
+  const card = $("#docCard");
+  card.hidden = false;
+  card.innerHTML = "";
+
+  const head = el("div", "row");
+  const titles = el("div");
+  titles.appendChild(el("h3", null, doc.title));
+  titles.appendChild(el("div", "src", `${doc.path} · 청크 ${doc.sections.length}개`));
+  head.appendChild(titles);
+  head.appendChild(el("span", "spacer")).style.flex = "1";
+
+  const close = el("button", "act ghost", "닫기");
+  close.onclick = () => { card.hidden = true; };
+  head.appendChild(close);
+  card.appendChild(head);
+
+  const expandAll = doc.sections.length <= EXPAND_ALL_UNDER;
+  let target = null;
+
+  doc.sections.forEach((s, i) => {
+    const sec = el("div", "section");
+    const open = expandAll || s.location === section;
+    if (s.location === section) {
+      sec.style.background = "var(--accent-soft)";
+      if (!target) target = sec;
+    }
+
+    const loc = el("button", "loc-toggle");
+    loc.innerHTML = `<span class="caret">${open ? "▾" : "▸"}</span> ${esc(s.location || "(제목 없음)")}`;
+    const pre = el("pre");
+    pre.innerHTML = highlight(s.text);
+    pre.hidden = !open;
+
+    loc.onclick = () => {
+      pre.hidden = !pre.hidden;
+      loc.querySelector(".caret").textContent = pre.hidden ? "▸" : "▾";
+    };
+
+    sec.appendChild(loc);
+    sec.appendChild(pre);
+    card.appendChild(sec);
+  });
+
+  (target || card).scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// ── 인박스 ──────────────────────────────────────────────────
+async function loadInbox() {
+  const box = $("#inboxList");
+  box.innerHTML = "<div class='empty'>불러오는 중…</div>";
+
+  let data;
+  try { data = await api("/api/inbox"); }
+  catch (e) { box.innerHTML = ""; toast(e.message, true); return; }
+
+  box.innerHTML = "";
+  if (!data.files.length) {
+    box.appendChild(el("div", "empty", "분류할 파일이 없습니다."));
+    return;
+  }
+
+  for (const f of data.files) {
+    const card = el("div", "file");
+    card.appendChild(el("h3", null, f.filename));
+    card.appendChild(el("div", "src", `${f.path} · ${f.size.toLocaleString()}바이트`));
+
+    if (f.status !== "ok") {
+      const err = el("div", "excerpt", "읽지 못한 파일: " + f.error);
+      err.style.color = "var(--warn)";
+      card.appendChild(err);
+    } else {
+      card.appendChild(el("div", "excerpt", f.excerpt));
+    }
+
+    const row = el("div", "row");
+    const sel = el("select");
+    sel.appendChild(el("option", null, "책장 선택…"));
+    for (const c of data.collections) {
+      const o = el("option", null, c);
+      o.value = c;
+      sel.appendChild(o);
+    }
+
+    const btn = el("button", "act", "옮기기");
+    btn.onclick = async () => {
+      if (!sel.value) { toast("책장을 고르세요.", true); return; }
+      btn.disabled = true;
+      try {
+        const r = await api("/api/file", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ document_id: f.document_id, collection: sel.value }),
+        });
+        toast(`${r.from} → ${r.to}${r.note ? " · " + r.note : ""}`);
+        await Promise.all([loadInbox(), loadStatus()]);
+      } catch (e) {
+        toast(e.message, true);
+        btn.disabled = false;
+      }
+    };
+
+    row.appendChild(sel);
+    row.appendChild(btn);
+    card.appendChild(row);
+    box.appendChild(card);
+  }
+}
+
+// ── 기록 ────────────────────────────────────────────────────
+async function loadMoves() {
+  const box = $("#movesList");
+  let rows;
+  try { rows = await api("/api/moves"); }
+  catch (e) { toast(e.message, true); return; }
+
+  box.innerHTML = "";
+  if (!rows.length) {
+    box.appendChild(el("div", "empty", "아직 옮긴 파일이 없습니다."));
+    return;
+  }
+
+  const t = el("table");
+  t.innerHTML = "<tr><th>시각</th><th>종류</th><th>내용</th><th>되돌림</th></tr>";
+  for (const r of rows) {
+    const tr = el("tr");
+    const detail = r.kind === "move" ? `${r.src} → ${r.dst}` : r.dst;
+    tr.innerHTML =
+      `<td>${esc(r.ts.slice(0, 19).replace("T", " "))}</td>` +
+      `<td>${esc(r.kind)}</td>` +
+      `<td>${esc(detail)}${r.note ? `<br><span style="color:var(--dim)">${esc(r.note)}</span>` : ""}</td>` +
+      `<td class="done">${r.undone ? "되돌림" : ""}</td>`;
+    t.appendChild(tr);
+  }
+  box.appendChild(t);
+}
+
+// ── 탭 ──────────────────────────────────────────────────────
+const loaders = { search: loadStatus, inbox: loadInbox, moves: loadMoves };
+
+document.querySelectorAll("nav button").forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll("nav button").forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+    for (const name of Object.keys(loaders)) {
+      $("#tab-" + name).hidden = name !== b.dataset.tab;
+    }
+    loaders[b.dataset.tab]();
+  };
+});
+
+$("#searchBtn").onclick = runSearch;
+$("#q").addEventListener("keydown", e => {
+  // 한글은 조합 중에도 Enter가 온다 (마지막 글자를 확정하는 Enter).
+  // 그대로 검색하면 확정 전 문자열로 검색된다.
+  if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229) runSearch();
+});
+
+$("#reindexBtn").onclick = async (e) => {
+  e.target.disabled = true;
+  e.target.textContent = "색인 중…";
+  try {
+    const s = await api("/api/reindex", { method: "POST" });
+    toast(`색인 완료 — 새로 읽음 ${s.indexed} / 변경 없음 ${s.skipped} / 실패 ${s.failed}`);
+    await loadStatus();
+  } catch (err) { toast(err.message, true); }
+  e.target.disabled = false;
+  e.target.textContent = "재색인";
+};
+
+$("#undoBtn").onclick = async () => {
+  try {
+    const r = await api("/api/undo", { method: "POST" });
+    toast(r.message);
+    await Promise.all([loadMoves(), loadStatus()]);
+  } catch (e) { toast(e.message, true); }
+};
+
+loadStatus().catch(e => toast(e.message, true));
+</script>
+</body>
+</html>

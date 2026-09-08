@@ -1,0 +1,252 @@
+"""로컬 웹 UI (127.0.0.1 전용).
+
+목적이 둘이다.
+
+1. **검증** — Claude가 답한 근거를 사람이 같은 검색어로 재현한다.
+   그래서 이 화면은 Claude가 쓰는 것과 **같은 검색 함수**를 호출한다.
+   따로 만든 검색이면 재현이 아니라 흉내다.
+2. **정리** — AI가 분류한 결과를 사람이 승인·수정하는 자리.
+
+인증은 없다. 대신 127.0.0.1에만 바인딩한다. 이 서버는 네트워크에 열리지 않는다.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+import threading
+from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel
+
+from . import __version__, organize
+from .index import index_root, last_indexed_at
+from .paths import OutsideRootError
+from .search import (
+    document_total,
+    failed_documents,
+    get_document,
+    list_collections,
+    list_documents,
+    search,
+    search_hint,
+    term_document_counts,
+)
+
+STATIC_DIR = Path(__file__).parent / "static"
+
+
+class FileRequest(BaseModel):
+    document_id: int
+    collection: str
+    new_name: str | None = None
+    create_collection: bool = False
+
+
+class ReadmeRequest(BaseModel):
+    collection: str
+    name: str
+    description: str
+    tags: list[str] | None = None
+
+
+def create_app(root: Path, conn: sqlite3.Connection, lock: threading.Lock) -> FastAPI:
+    app = FastAPI(title=f"서재 — {root.name}", version=__version__, docs_url=None, redoc_url=None)
+
+    def fail(message: str, status: int = 400) -> JSONResponse:
+        return JSONResponse({"error": message}, status_code=status)
+
+    @app.get("/", response_class=HTMLResponse)
+    def index() -> str:
+        # 요청마다 읽는다. 개발 중에 새로고침만으로 반영되게.
+        return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+    @app.get("/api/status")
+    def api_status() -> dict[str, Any]:
+        with lock:
+            collections = list_collections(conn, include_inbox=False)
+            failed = failed_documents(conn)
+            return {
+                "root": str(root),
+                "name": root.name,
+                "version": __version__,
+                "last_indexed_at": last_indexed_at(conn),
+                "document_count": document_total(conn),
+                "inbox_count": organize.inbox_count(conn),
+                "collections": [
+                    {
+                        "name": c.dirname,
+                        "title": c.name,
+                        "description": c.description,
+                        "tags": c.tags,
+                        "doc_count": c.doc_count,
+                        "chunk_count": c.chunk_count,
+                        "has_readme": c.has_readme,
+                        "updated": c.updated,
+                    }
+                    for c in collections
+                ],
+                "failed": [{"path": d.path, "error": d.error} for d in failed],
+            }
+
+    @app.get("/api/search")
+    def api_search(
+        q: str,
+        collection: str | None = None,
+        top_k: int = 10,
+        include_inbox: bool = False,
+    ) -> dict[str, Any]:
+        # Claude가 부르는 것과 같은 함수다. 여기가 갈리면 재현이 아니다.
+        with lock:
+            hits = search(
+                conn, q, collection=collection, top_k=top_k, include_inbox=include_inbox
+            )
+            counts = term_document_counts(conn, q, collection)
+            hint = search_hint(conn, q, hits, collection, counts=counts)
+            total = document_total(conn, collection)
+
+        return {
+            "query": q,
+            "term_document_counts": counts,
+            "document_count": total,
+            "hint": hint,
+            "results": [
+                {
+                    "text": h.text,
+                    "collection": h.collection,
+                    "source": h.source,
+                    "location": h.location,
+                    "score": h.score,
+                    "document_id": h.doc_id,
+                    "also_in": h.also_in,
+                }
+                for h in hits
+            ],
+        }
+
+    @app.get("/api/documents")
+    def api_documents(collection: str | None = None) -> list[dict[str, Any]]:
+        with lock:
+            docs = list_documents(conn, collection=collection)
+        return [
+            {
+                "id": d.id,
+                "title": d.title,
+                "path": d.path,
+                "collection": d.collection,
+                "pages": d.pages,
+                "chunk_count": d.chunk_count,
+                "indexed_at": d.indexed_at,
+            }
+            for d in docs
+        ]
+
+    @app.get("/api/document/{document_id}")
+    def api_document(document_id: int, section: str | None = None):
+        with lock:
+            doc = get_document(conn, document_id, section=section)
+        if doc is None:
+            return fail(f"문서 {document_id}를 찾을 수 없다.", 404)
+        return doc
+
+    @app.get("/api/inbox")
+    def api_inbox(limit: int = 50) -> dict[str, Any]:
+        with lock:
+            items = organize.list_inbox(conn, root, limit=limit)
+            shelves = [c.dirname for c in list_collections(conn, include_inbox=False)]
+        return {
+            "files": [
+                {
+                    "document_id": i.id,
+                    "filename": i.filename,
+                    "path": i.path,
+                    "size": i.size,
+                    "added_at": i.added_at,
+                    "excerpt": i.excerpt,
+                    "status": i.status,
+                    "error": i.error,
+                }
+                for i in items
+            ],
+            "collections": shelves,
+        }
+
+    @app.post("/api/file")
+    def api_file(req: FileRequest):
+        try:
+            with lock:
+                result = organize.file_document(
+                    conn,
+                    root,
+                    req.document_id,
+                    req.collection,
+                    new_name=req.new_name,
+                    create_collection=req.create_collection,
+                )
+        except (organize.OrganizeError, OutsideRootError) as e:
+            return fail(str(e))
+
+        return {
+            "from": result.src,
+            "to": result.dst,
+            "collection": result.collection,
+            "created_collection": result.created_collection,
+            "note": result.note,
+        }
+
+    @app.get("/api/moves")
+    def api_moves(limit: int = 30) -> list[dict[str, Any]]:
+        with lock:
+            return organize.list_moves(conn, limit=limit)
+
+    @app.post("/api/undo")
+    def api_undo():
+        try:
+            with lock:
+                message = organize.undo_last(conn, root)
+        except organize.OrganizeError as e:
+            return fail(str(e))
+        return {"message": message}
+
+    @app.get("/api/collection/{collection}/material")
+    def api_material(collection: str):
+        try:
+            with lock:
+                material = organize.describe_collection(conn, root, collection)
+        except organize.OrganizeError as e:
+            return fail(str(e), 404)
+        return {
+            "collection": material.collection,
+            "document_count": material.document_count,
+            "has_readme": material.has_readme,
+            "current_description": material.current_description,
+            "documents": material.documents,
+            "frequent_terms": material.frequent_terms,
+        }
+
+    @app.post("/api/readme")
+    def api_readme(req: ReadmeRequest):
+        try:
+            with lock:
+                path = organize.write_collection_readme(
+                    conn, root, req.collection, req.name, req.description, req.tags
+                )
+        except organize.OrganizeError as e:
+            return fail(str(e))
+        return {"written": path}
+
+    @app.post("/api/reindex")
+    def api_reindex() -> dict[str, Any]:
+        with lock:
+            stats = index_root(root, conn)
+        return {
+            "indexed": stats.indexed,
+            "skipped": stats.skipped,
+            "failed": stats.failed,
+            "removed": stats.removed,
+            "chunks": stats.chunks,
+        }
+
+    return app

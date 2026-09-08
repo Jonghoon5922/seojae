@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "seojae-ui",
+      "runtimeExecutable": ".venv/Scripts/seojae.exe",
+      "runtimeArgs": ["ui", "testdata/seojae", "--port", "8765"],
+      "port": 8765
+    }
+  ]
+}

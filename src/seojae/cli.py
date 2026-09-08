@@ -1,8 +1,13 @@
-"""CLI. 1단계 범위: status / reindex / search."""
+"""CLI.
+
+색인(reindex/status) · 검색(search/show/documents) · 정리(inbox/moves/undo) ·
+서버(serve/ui) · 초기화(init).
+"""
 
 from __future__ import annotations
 
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -289,6 +294,53 @@ def serve(
     watching = "" if no_watch else " + 파일 감시"
     err.print(f"[dim]MCP 서버 시작 (stdio){watching} — 루트: {root_path}[/dim]")
     run_server(root_path, watch=not no_watch, on_change=on_change)
+
+
+@app.command()
+def ui(
+    root: str = RootArg,
+    port: int = typer.Option(8765, "--port", "-p", help="포트"),
+    no_watch: bool = typer.Option(False, "--no-watch", help="파일 감시 없이"),
+    no_index: bool = typer.Option(False, "--no-index", help="시작 시 색인 건너뛰기"),
+) -> None:
+    """로컬 웹 UI를 띄운다. 127.0.0.1에만 바인딩한다."""
+    import uvicorn
+
+    from .web import create_app
+
+    root_path, _ = _open(root)
+    conn = open_db(root_path, check_same_thread=False)
+    lock = threading.Lock()
+
+    if not no_index:
+        console.print(f"[dim]색인 확인 중…[/dim]")
+        stats = index_root(root_path, conn)
+        console.print(
+            f"[dim]새로 읽음 {stats.indexed} / 변경 없음 {stats.skipped} / 실패 {stats.failed}[/dim]"
+        )
+
+    watcher = None
+    if not no_watch:
+        from .watcher import ShelfWatcher
+
+        watcher = ShelfWatcher(root_path, conn, lock)
+        watcher.start()
+
+    console.print(f"[bold]서재:[/bold] {root_path}")
+    console.print(f"[green]http://127.0.0.1:{port}[/green] 에서 열린다. Ctrl+C로 종료.\n")
+
+    try:
+        # 127.0.0.1로만 바인딩한다. 이 서버는 네트워크에 열리지 않는다.
+        uvicorn.run(
+            create_app(root_path, conn, lock),
+            host="127.0.0.1",
+            port=port,
+            log_level="warning",
+        )
+    finally:
+        if watcher is not None:
+            watcher.stop()
+        conn.close()
 
 
 @app.command()

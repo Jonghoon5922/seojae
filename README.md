@@ -18,7 +18,7 @@ Claude → search(query="예외 처리 규약", collection="개발가이드")
 문서는 **PC를 떠나지 않는다.** 네트워크 전송 없음, 외부 API 호출 없음, 계정 없음.
 
 > [!NOTE]
-> 개발 중이다. 6단계 중 4단계까지 동작한다. 아래 [진행 상태](#진행-상태) 참고.
+> 개발 중이다. 6단계 중 5단계까지 동작한다. 아래 [진행 상태](#진행-상태) 참고.
 
 ---
 
@@ -337,6 +337,35 @@ seojae serve     <root>          MCP(stdio) 서버 + 파일 감시
 
 ---
 
+## 웹 UI — 사람이 근거를 확인하는 자리
+
+```bash
+uv run seojae ui 내서재
+```
+
+`http://127.0.0.1:8765`. **127.0.0.1에만 바인딩한다.** 네트워크에 열리지 않는다.
+
+화면은 셋이다.
+
+- **검색** — 왼쪽에 책장, 오른쪽에 검색. 결과마다 출처·점수·검색어별 문서 수가 붙는다.
+  출처를 누르면 그 문서가 **헤딩 목차로 펼쳐지고 찾던 대목만 열린 채** 표시된다
+- **인박스** — 미분류 파일의 발췌를 보고 책장을 골라 옮긴다 (Claude가 한 분류를 사람이 고치는 자리)
+- **기록** — 옮긴 내역과 되돌리기
+
+여기서 중요한 건 **UI가 Claude와 같은 검색 함수를 호출한다**는 점이다.
+따로 만든 검색이면 "근거 재현"이 아니라 흉내다. 테스트로 두 결과가 같은지 확인한다.
+
+```python
+web = client.get("/api/search", params={"q": query}).json()
+direct = search(conn, query)            # Claude가 쓰는 그 함수
+assert [r["source"] for r in web["results"]] == [h.source for h in direct]
+```
+
+MCP 서버와 웹 UI는 **한 프로세스에서 같은 색인을 공유**한다.
+Claude가 파일을 옮기면 브라우저를 새로고침하는 즉시 반영된다.
+
+---
+
 ## 파일을 옮길 때의 규칙
 
 AI가 파일을 옮긴다는 건 겁나는 일이다. 그래서 규칙을 코드로 강제한다.
@@ -421,7 +450,7 @@ _inbox\  ──┐
 - [x] **2단계** — 검색 축 MCP 도구 4개 + instructions 주입
 - [x] **3단계** — 파일 감시 증분 색인, `init`
 - [x] **4단계** — 인박스 + 정리 축 (분류·되돌리기·책장 설명 작성)
-- [ ] 5단계 — 웹 UI (서재 화면 + 인박스 화면)
+- [x] **5단계** — 웹 UI (검색 근거 재현 + 인박스 정리)
 - [ ] 6단계 — 로컬 임베딩(옵션), `.mcpb` 번들, 패키지 배포
 
 설계 결정과 그 근거는 전부 [SPEC.md](SPEC.md)에 있다.
@@ -468,7 +497,7 @@ searchable in about a second, with no reindex command. Filesystem events are not
 directly: editors emit several per save (debounced), and on Windows a large file is still
 locked when its creation event arrives (retried).
 
-Status: stages 1–4 of 6 complete. See [SPEC.md](SPEC.md) (Korean) for design decisions.
+Status: stages 1–5 of 6 complete. See [SPEC.md](SPEC.md) (Korean) for design decisions.
 
 ---
 
