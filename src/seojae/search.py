@@ -11,6 +11,7 @@ import json
 import re
 import sqlite3
 from dataclasses import dataclass, field
+from typing import Any
 
 from .tokenizer import build_match_query
 
@@ -229,6 +230,61 @@ def get_document(
 
 def failed_documents(conn: sqlite3.Connection) -> list[DocumentSummary]:
     return list_documents(conn, status="failed")
+
+
+# ── 책장 안내 ─────────────────────────────────────────────────────────────
+# 책장을 고른 다음 "여기 뭐가 있나"를 알려주는 지도. 전체 목록이 아니다.
+# 576건짜리 책장의 문서 목록은 32,000토큰이고 폴더 트리는 465토큰이다.
+# 목록을 통째로 주면 답변에 쓸 자리가 남지 않는다.
+
+
+def collection_guide(
+    conn: sqlite3.Connection, collection: str, folder_limit: int = 60
+) -> dict[str, Any] | None:
+    """책장 안내: 사람이 쓴 README 본문 + 폴더 트리 + 형식 분포."""
+    row = conn.execute(
+        "SELECT dirname, name, description, tags, body, has_readme FROM collections WHERE dirname = ?",
+        (collection,),
+    ).fetchone()
+    if row is None:
+        return None
+
+    docs = conn.execute(
+        "SELECT path, ext FROM documents WHERE collection = ? AND status = 'ok'",
+        (collection,),
+    ).fetchall()
+
+    folders: dict[str, int] = {}
+    extensions: dict[str, int] = {}
+    for doc in docs:
+        parts = doc["path"].split("/")
+        folder = "/".join(parts[1:-1]) or "(바로 아래)"
+        folders[folder] = folders.get(folder, 0) + 1
+        ext = doc["ext"] or "(없음)"
+        extensions[ext] = extensions.get(ext, 0) + 1
+
+    ranked = sorted(folders.items(), key=lambda kv: (-kv[1], kv[0]))
+    shown = ranked[:folder_limit]
+
+    try:
+        tags = json.loads(row["tags"]) or []
+    except (json.JSONDecodeError, TypeError):
+        tags = []
+
+    return {
+        "collection": row["dirname"],
+        "name": row["name"],
+        "description": row["description"],
+        "tags": tags,
+        "document_count": len(docs),
+        # README 프론트매터 아래 본문. 사람이나 Claude가 쓴 안내문이다 (SPEC 6절).
+        "guide": row["body"] or "",
+        "has_readme": bool(row["has_readme"]),
+        "folders": [{"path": name, "documents": count} for name, count in shown],
+        "more_folders": max(0, len(ranked) - len(shown)),
+        "file_types": dict(sorted(extensions.items(), key=lambda kv: -kv[1])),
+        "frequent_terms": collection_terms(conn, collection, limit=20),
+    }
 
 
 # ── 재검색 유도 ────────────────────────────────────────────────────────────

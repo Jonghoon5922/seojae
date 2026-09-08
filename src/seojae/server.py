@@ -9,6 +9,7 @@ stdout은 MCP 프로토콜 채널이다. 이 모듈은 stdout에 아무것도 �
 
 from __future__ import annotations
 
+import base64
 import sqlite3
 import threading
 from pathlib import Path
@@ -18,8 +19,10 @@ from mcp.server.mcpserver import MCPServer
 
 from . import __version__, organize
 from .index import open_db
+from .parsers.image import is_image, mime_type
 from .paths import OutsideRootError
 from .search import (
+    collection_guide,
     document_total,
     get_document,
     list_collections,
@@ -31,6 +34,33 @@ from .search import (
 
 # get_document가 한 번에 돌려주는 최대 분량. 넘으면 잘라내고 section을 쓰라고 알린다.
 MAX_DOCUMENT_CHARS = 40_000
+
+
+def _image_result(root: Path, doc: dict[str, Any]):
+    """이미지 문서를 MCP 이미지 블록으로 돌려준다.
+
+    OCR을 하지 않는다. 원본을 그대로 넘기면 멀티모달 모델이 표·다이어그램까지
+    OCR보다 잘 읽는다. 판단은 손님이 한다는 원칙 그대로다.
+    """
+    from mcp_types import ImageContent, TextContent
+
+    path = root / doc["path"]
+    try:
+        data = path.read_bytes()
+    except OSError as e:
+        return {"error": f"이미지를 읽지 못했다: {e}"}
+
+    return [
+        TextContent(
+            type="text",
+            text=f"{doc['path']} (이미지). 아래 그림을 직접 보고 판단하라.",
+        ),
+        ImageContent(
+            type="image",
+            data=base64.b64encode(data).decode("ascii"),
+            mimeType=mime_type(path),
+        ),
+    ]
 
 
 def build_instructions(conn: sqlite3.Connection, root: Path) -> str:
@@ -175,17 +205,43 @@ def create_server(
         }
 
     @server.tool(
+        name="get_collection_guide",
+        description=(
+            "책장을 고른 다음 '여기 무엇이 있는지'를 알려주는 안내. "
+            "README 본문 + 폴더 구성 + 파일 형식 분포 + 자주 쓰는 용어. "
+            "문서를 전부 나열하지 않으므로 가볍다. 어디를 뒤질지 정할 때 쓴다."
+        ),
+    )
+    def get_collection_guide_tool(collection: str) -> dict[str, Any]:
+        with lock:
+            guide = collection_guide(conn, collection)
+        if guide is None:
+            return {"error": f"'{collection}' 책장을 찾을 수 없다. list_collections로 확인하라."}
+        if not guide["guide"]:
+            guide["note"] = (
+                "이 책장에는 아직 안내문(README 본문)이 없다. "
+                "describe_collection으로 재료를 보고 write_collection_readme로 써두면 "
+                "다음부터 이 자리에서 바로 읽을 수 있다."
+            )
+        return guide
+
+    @server.tool(
         name="get_document",
         description=(
             "문서 원문을 읽는다. section을 주면 그 헤딩·페이지 부분만 읽는다. "
-            "검색 결과의 location을 section으로 넘기면 그 대목만 정확히 볼 수 있다."
+            "검색 결과의 location을 section으로 넘기면 그 대목만 정확히 볼 수 있다. "
+            "이미지 파일이면 이미지 자체를 돌려주므로 직접 보고 판단하면 된다."
         ),
     )
-    def get_document_tool(document_id: int, section: str | None = None) -> dict[str, Any]:
+    def get_document_tool(document_id: int, section: str | None = None):
         with lock:
             doc = get_document(conn, document_id, section=section)
         if doc is None:
             return {"error": f"문서 {document_id}를 찾을 수 없다. list_documents로 id를 확인하라."}
+
+        # 이미지는 우리가 읽지 않는다. 원본을 넘겨 Claude가 직접 보게 한다.
+        if is_image(doc["path"]):
+            return _image_result(root, doc)
 
         text_parts = []
         total = 0

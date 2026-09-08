@@ -45,8 +45,8 @@ def test_describe_formats_is_human_readable() -> None:
 
 
 def test_unknown_extension_raises(tmp_path: Path) -> None:
-    junk = tmp_path / "사진.png"
-    junk.write_bytes(b"\x89PNG")
+    junk = tmp_path / "압축.zip"
+    junk.write_bytes(b"PK fake archive")
     with pytest.raises(ParseError):
         parse_file(junk)
 
@@ -311,3 +311,46 @@ def test_build_dirs_are_skipped(tmp_path: Path) -> None:
 
     found = {p.name for p in walk_files(tmp_path, tmp_path)}
     assert found == {"App.java"}
+
+
+# ── 이미지 ────────────────────────────────────────────────────────────────
+
+
+def _tiny_png() -> bytes:
+    """1x1 투명 PNG (base64 디코딩한 최소 이미지)."""
+    import base64
+
+    return base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
+        "YPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+    )
+
+
+def test_image_is_searchable_by_filename(tmp_path: Path) -> None:
+    """OCR은 하지 않는다. 파일명만으로도 찾을 수 있어야 한다."""
+    path = tmp_path / "전환_흐름도-v2.png"
+    path.write_bytes(_tiny_png())
+
+    doc = parse_file(path)
+    text = doc.blocks[0].text
+
+    assert "전환_흐름도-v2.png" in text
+    assert "전환 흐름도 v2" in text  # 구분자를 띄어 검색에 걸리게
+    assert "get_document" in text  # 어떻게 열어보는지 알려준다
+
+
+def test_image_helpers() -> None:
+    from seojae.parsers.image import is_image, mime_type
+
+    assert is_image("설계도.png")
+    assert is_image("사진.JPG")
+    assert not is_image("문서.pdf")
+    assert mime_type("설계도.png") == "image/png"
+    assert mime_type("사진.jpg") == "image/jpeg"
+
+
+def test_huge_image_is_refused(tmp_path: Path) -> None:
+    path = tmp_path / "거대.png"
+    path.write_bytes(b"\x00" * (21 * 1024 * 1024))
+    with pytest.raises(ParseError):
+        parse_file(path)

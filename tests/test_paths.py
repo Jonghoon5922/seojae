@@ -43,7 +43,7 @@ def test_is_inside(shelf: Path) -> None:
 
 
 def test_walk_files_skips_unsupported(shelf: Path) -> None:
-    (shelf / "업무규정" / "사진.png").write_bytes(b"fake image bytes")
+    (shelf / "업무규정" / "압축.zip").write_bytes(b"PK fake archive")
     names = sorted(p.name for p in walk_files(shelf / "업무규정", shelf))
     assert names == ["README.md", "출장지침.md", "휴가규정.md"]
 

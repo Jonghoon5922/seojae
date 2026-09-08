@@ -12,6 +12,7 @@ from seojae.index import index_root, open_db
 from seojae.search import (
     collection_terms,
     document_total,
+    list_documents,
     search,
     search_hint,
     term_document_counts,
@@ -56,6 +57,7 @@ def test_tools_exposed_with_spec_names(indexed: Path) -> None:
         "list_documents",
         "search",
         "get_document",
+        "get_collection_guide",
         # 정리 축
         "list_inbox",
         "file_document",
@@ -187,3 +189,59 @@ def test_hint_absent_when_search_is_clean(indexed: Path) -> None:
     hits = search(conn, "연차 휴가")
     assert search_hint(conn, "연차 휴가", hits) == ""
     conn.close()
+
+
+# ── 책장 안내와 이미지 ─────────────────────────────────────────────────────
+
+
+def test_collection_guide_is_light(indexed: Path) -> None:
+    """문서를 전부 나열하지 않는다. 지도를 준다."""
+    server = create_server(indexed)
+    guide = _payload(run(server.call_tool("get_collection_guide", {"collection": "업무규정"})))
+
+    assert guide["document_count"] == 3
+    assert guide["folders"]  # 폴더 구성
+    assert guide["file_types"][".md"] == 3
+    assert guide["frequent_terms"]
+    assert "documents" not in guide, "문서 목록을 통째로 담으면 안 된다"
+
+
+def test_collection_guide_returns_readme_body(indexed: Path) -> None:
+    """README 프론트매터 아래 본문이 곧 '정리된 안내문'이다."""
+    server = create_server(indexed)
+    guide = _payload(run(server.call_tool("get_collection_guide", {"collection": "업무규정"})))
+
+    assert "휴가규정.md" in guide["guide"]
+    assert "note" not in guide
+
+
+def test_collection_guide_missing(indexed: Path) -> None:
+    server = create_server(indexed)
+    payload = _payload(run(server.call_tool("get_collection_guide", {"collection": "없는책장"})))
+    assert "error" in payload
+
+
+def test_get_document_returns_image_itself(indexed: Path) -> None:
+    """이미지는 OCR하지 않고 원본을 넘겨 Claude가 직접 보게 한다."""
+    import base64
+
+    from seojae.index import index_root, open_db
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
+        "YPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+    )
+    (indexed / "업무규정" / "조직도.png").write_bytes(png)
+    conn = open_db(indexed)
+    index_root(indexed, conn)
+    doc_id = next(d.id for d in list_documents(conn) if d.path.endswith("조직도.png"))
+    conn.close()
+
+    server = create_server(indexed)
+    result = run(server.call_tool("get_document", {"document_id": doc_id}))
+
+    kinds = [c.type for c in result.content]
+    assert "image" in kinds, "이미지 블록으로 돌려줘야 한다"
+    image = next(c for c in result.content if c.type == "image")
+    assert image.mime_type == "image/png"
+    assert base64.b64decode(image.data) == png

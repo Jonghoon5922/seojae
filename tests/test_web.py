@@ -383,11 +383,11 @@ def test_import_rejects_unsupported_type(client) -> None:
     res = c.post(
         "/api/import",
         data={"collection": "업무규정"},
-        files={"files": ("사진.png", "not really a png", "image/png")},
+        files={"files": ("압축.zip", "PK fake archive", "application/zip")},
     )
 
     assert res.status_code == 400
-    assert not (shelf / "업무규정" / "사진.png").exists()
+    assert not (shelf / "업무규정" / "압축.zip").exists()
 
 
 def test_import_rejects_unknown_collection(client) -> None:

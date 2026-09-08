@@ -29,6 +29,7 @@ from . import hwpx_file as _hwpx  # noqa: F401
 from . import tabular as _tabular  # noqa: F401
 from . import slides as _slides  # noqa: F401
 from . import markup as _markup  # noqa: F401
+from . import image as _image  # noqa: F401
 
 #: 색인 대상 확장자. paths.walk_files 와 업로드 검사가 쓴다.
 SUPPORTED_EXTS = supported_extensions()

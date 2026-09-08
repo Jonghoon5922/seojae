@@ -123,8 +123,8 @@ def test_forget_one(shelf: Path) -> None:
 def test_index_one_ignores_unsupported(shelf: Path) -> None:
     conn = open_db(shelf)
     index_root(shelf, conn)
-    junk = shelf / "업무규정" / "사진.png"
-    junk.write_bytes(b"fake image bytes")
+    junk = shelf / "업무규정" / "압축.zip"
+    junk.write_bytes(b"PK fake archive")
 
     assert index_one(shelf, conn, junk).indexed == 0
     conn.close()
@@ -135,7 +135,7 @@ def test_index_one_ignores_unsupported(shelf: Path) -> None:
 
 def test_is_watchable(shelf: Path) -> None:
     assert _is_watchable(shelf, shelf / "업무규정" / "휴가규정.md")
-    assert not _is_watchable(shelf, shelf / "업무규정" / "사진.png")
+    assert not _is_watchable(shelf, shelf / "업무규정" / "압축.zip")
     assert not _is_watchable(shelf, shelf / ".seojae" / "index.db")
     assert not _is_watchable(shelf, shelf / ".숨김" / "a.md")
     assert not _is_watchable(shelf, shelf.parent / "바깥" / "a.md")
