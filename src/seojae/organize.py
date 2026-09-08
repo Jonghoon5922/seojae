@@ -28,6 +28,7 @@ from .parsers.plain import read_text
 from .paths import (
     DATA_DIRNAME,
     INBOX_DIRNAME,
+    SUPPORTED_EXTS,
     OutsideRootError,
     data_dir,
     is_inside,
@@ -523,6 +524,95 @@ def write_collection_readme(
     return rel(root, target)
 
 
+# ── 밖에서 파일 가져오기 ──────────────────────────────────────────────────
+
+# 한 번에 받을 수 있는 파일 크기 상한
+MAX_IMPORT_BYTES = 100 * 1024 * 1024
+
+
+def import_file(
+    conn,
+    root: Path,
+    collection: str,
+    filename: str,
+    data: bytes,
+) -> MoveResult:
+    """밖에서 온 파일을 서재에 넣는다 (드래그앤드롭·업로드).
+
+    브라우저는 보안상 파일의 실제 경로를 주지 않는다. 내용만 받을 수 있어서
+    원본을 지울 수 없다. 그래서 이건 '이동'이 아니라 '가져오기'다.
+
+    안전 규칙은 file_document 와 같다. 루트 밖 금지, 덮어쓰기 금지, 기록 남기기.
+    """
+    if not data:
+        raise OrganizeError("빈 파일이다.")
+    if len(data) > MAX_IMPORT_BYTES:
+        raise OrganizeError(
+            f"파일이 너무 크다 ({len(data) / 1024 / 1024:.0f}MB). "
+            f"{MAX_IMPORT_BYTES // 1024 // 1024}MB까지 받는다."
+        )
+
+    safe_name = _safe_import_name(filename)
+    if Path(safe_name).suffix.lower() not in SUPPORTED_EXTS:
+        supported = ", ".join(sorted(SUPPORTED_EXTS))
+        raise OrganizeError(f"'{safe_name}'는 읽을 수 없는 형식이다. 지원: {supported}")
+
+    if collection == INBOX_DIRNAME:
+        directory = root / INBOX_DIRNAME
+        directory.mkdir(parents=True, exist_ok=True)
+        target_name = INBOX_DIRNAME
+        is_inbox = True
+    else:
+        target_name = _safe_collection_name(collection)
+        directory = root / target_name
+        if not directory.is_dir():
+            raise OrganizeError(f"'{target_name}' 책장이 없다.")
+        is_inbox = False
+
+    dst, renamed = _free_path(directory, safe_name)
+    if not is_inside(root, dst):
+        raise OutsideRootError("루트 밖에는 쓰지 않는다.")
+
+    dst.write_bytes(data)
+
+    ensure_collection(root, conn, target_name)
+    index_one(root, conn, dst, commit=False)
+
+    note = "밖에서 가져온 파일"
+    if renamed:
+        note += f" · 같은 이름이 있어 '{dst.name}'로 두었다"
+
+    conn.execute(
+        "INSERT INTO moves(ts, kind, src, dst, note) VALUES(?, 'import', ?, ?, ?)",
+        (now_iso(), filename, rel(root, dst), note),
+    )
+    conn.commit()
+
+    row = conn.execute(
+        "SELECT id FROM documents WHERE path = ?", (rel(root, dst),)
+    ).fetchone()
+
+    return MoveResult(
+        document_id=row["id"] if row else 0,
+        src=filename,
+        dst=rel(root, dst),
+        collection=target_name,
+        renamed=renamed,
+        note=note,
+    )
+
+
+def _safe_import_name(filename: str) -> str:
+    """브라우저가 준 이름은 믿지 않는다. 경로 성분을 전부 떼고 이름만 쓴다."""
+    raw = (filename or "").replace("\\", "/").split("/")[-1].strip()
+    if not raw or raw in {".", ".."}:
+        raise OrganizeError("파일 이름이 없다.")
+    cleaned = _BAD_NAME_CHARS.sub("_", raw)
+    if not cleaned.strip("._ "):
+        raise OrganizeError(f"쓸 수 없는 파일 이름이다: {filename}")
+    return cleaned
+
+
 # ── 책장 만들기·이름 바꾸기 ───────────────────────────────────────────────
 
 
@@ -640,11 +730,15 @@ __all__ = [
     "InboxItem",
     "MoveResult",
     "OrganizeError",
+    "create_collection",
+    "delete_collection_if_empty",
     "describe_collection",
     "file_document",
+    "import_file",
     "inbox_count",
     "list_inbox",
     "list_moves",
+    "rename_collection",
     "undo_last",
     "write_collection_readme",
 ]

@@ -117,6 +117,21 @@
   th { color: var(--dim); font-weight: 600; }
   td.done { color: var(--dim); }
 
+  /* 드래그앤드롭 */
+  .file[draggable] { cursor: grab; }
+  .file.dragging { opacity: 0.45; }
+  .shelf.drop, .dropzone.drop {
+    background: var(--accent-soft);
+    outline: 2px dashed var(--accent);
+    outline-offset: -3px;
+  }
+  .dropzone {
+    border: 2px dashed var(--line); border-radius: 10px;
+    padding: 18px; text-align: center; color: var(--dim); font-size: 13px;
+    transition: 0.12s;
+  }
+  .dropzone b { color: var(--ink); }
+
   .field { margin-bottom: 14px; }
   .field label { display: block; font-size: 12px; color: var(--dim); margin-bottom: 5px; font-weight: 600; }
   .field input, .field textarea { width: 100%; }
@@ -209,9 +224,17 @@
 
   <!-- ── 인박스 ───────────────────────────────────────────── -->
   <section id="tab-inbox" hidden>
-    <div class="card">
-      <h2>분류하지 않은 파일</h2>
-      <div id="inboxList"></div>
+    <div class="layout">
+      <aside>
+        <div class="card">
+          <h2>책장으로 끌어다 놓기</h2>
+          <div id="inboxShelves"></div>
+        </div>
+      </aside>
+      <div class="card">
+        <h2>분류하지 않은 파일</h2>
+        <div id="inboxList"></div>
+      </div>
     </div>
   </section>
 
@@ -434,7 +457,36 @@ async function loadInbox() {
   try { data = await api("/api/inbox"); }
   catch (e) { box.innerHTML = ""; toast(e.message, true); return; }
 
+  // 왼쪽 책장 목록 — 여기로 카드를 끌어다 놓으면 이동한다
+  const shelfBox = $("#inboxShelves");
+  shelfBox.innerHTML = "";
+  if (!data.collections.length) {
+    shelfBox.appendChild(el("div", "empty", "책장이 없습니다."));
+  }
+  for (const name of data.collections) {
+    const b = el("button", "shelf");
+    b.textContent = name;
+    b.onclick = () => {
+      document.querySelector('nav button[data-tab="shelves"]').click();
+      openShelfEditor(name);
+    };
+    makeDropTarget(b, name, async () => {
+      await Promise.all([loadInbox(), loadStatus()]);
+    });
+    shelfBox.appendChild(b);
+  }
+
   box.innerHTML = "";
+
+  // 인박스에도 끌어다 놓을 수 있다 (분류는 나중에)
+  const zone = el("div", "dropzone");
+  zone.innerHTML = "파일을 여기에 끌어다 놓으면 <b>분류하지 않은 채로</b> 들어갑니다" +
+    "<br><span style=\"font-size:12px\">나중에 Claude에게 “인박스 정리해줘”라고 하면 됩니다</span>";
+  makeDropTarget(zone, "_inbox", async () => {
+    await Promise.all([loadInbox(), loadStatus()]);
+  });
+  box.appendChild(zone);
+
   if (!data.files.length) {
     box.appendChild(el("div", "empty", "분류할 파일이 없습니다."));
     return;
@@ -442,6 +494,7 @@ async function loadInbox() {
 
   for (const f of data.files) {
     const card = el("div", "file");
+    makeDraggable(card, f.document_id);  // 책장으로 끌어다 놓을 수 있다
     card.appendChild(el("h3", null, f.filename));
     card.appendChild(el("div", "src", `${f.path} · ${f.size.toLocaleString()}바이트`));
 
@@ -487,6 +540,89 @@ async function loadInbox() {
   }
 }
 
+// ── 드래그앤드롭 ────────────────────────────────────────────
+// 두 종류가 다르다.
+//   앱 안에서 끌기 (인박스 → 책장) = 진짜 이동
+//   밖에서 끌어오기 (탐색기 → 책장) = 가져오기(복사).
+//     브라우저가 파일의 실제 경로를 주지 않아 원본을 지울 수 없다.
+
+let draggingDocId = null;
+
+function makeDraggable(node, documentId) {
+  node.draggable = true;
+  node.addEventListener("dragstart", (e) => {
+    draggingDocId = documentId;
+    node.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(documentId));
+  });
+  node.addEventListener("dragend", () => {
+    draggingDocId = null;
+    node.classList.remove("dragging");
+  });
+}
+
+function hasFiles(e) {
+  return Array.from(e.dataTransfer?.types || []).includes("Files");
+}
+
+/** 책장으로 쓸 드롭 대상. 앱 안 문서와 밖의 파일을 둘 다 받는다. */
+function makeDropTarget(node, collectionName, after) {
+  const on = (e) => {
+    if (!hasFiles(e) && draggingDocId === null) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = hasFiles(e) ? "copy" : "move";
+    node.classList.add("drop");
+  };
+  node.addEventListener("dragover", on);
+  node.addEventListener("dragenter", on);
+  node.addEventListener("dragleave", (e) => {
+    if (!node.contains(e.relatedTarget)) node.classList.remove("drop");
+  });
+
+  node.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    node.classList.remove("drop");
+
+    const files = Array.from(e.dataTransfer.files || []);
+    if (files.length) {
+      await importFiles(collectionName, files);
+    } else if (draggingDocId !== null) {
+      const id = draggingDocId;
+      draggingDocId = null;
+      try {
+        const r = await api("/api/file", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ document_id: id, collection: collectionName }),
+        });
+        toast(`${r.from} → ${r.to}${r.note ? " · " + r.note : ""}`);
+      } catch (err) { toast(err.message, true); return; }
+    } else {
+      return;
+    }
+    if (after) await after();
+  });
+}
+
+async function importFiles(collectionName, files) {
+  const form = new FormData();
+  form.append("collection", collectionName);
+  for (const f of files) form.append("files", f, f.name);
+
+  toast(`${files.length}개 파일 넣는 중…`);
+  try {
+    const r = await api("/api/import", { method: "POST", body: form });
+    const ok = r.added.length;
+    const bad = r.failed.length;
+    toast(
+      `${collectionName}에 ${ok}건 넣었습니다` +
+      (bad ? ` · ${bad}건 실패: ${r.failed[0].error}` : "") +
+      (ok ? " (원본은 그대로 남습니다)" : "")
+    );
+  } catch (e) { toast(e.message, true); }
+}
+
 // ── 책장 관리 ───────────────────────────────────────────────
 let openShelf = null;
 
@@ -504,6 +640,10 @@ async function loadShelves() {
     b.innerHTML = `<span class="n">${c.doc_count}</span>${esc(c.name)}` +
       `<span class="desc">${esc(c.description)}</span>`;
     b.onclick = () => openShelfEditor(c.name);
+    // 여기로 파일을 끌어다 놓을 수 있다
+    makeDropTarget(b, c.name, async () => {
+      await Promise.all([loadShelves(), loadStatus()]);
+    });
     box.appendChild(b);
   }
   if (openShelf && s.collections.some(c => c.name === openShelf)) {
@@ -625,6 +765,17 @@ async function openShelfEditor(name, keepScroll) {
 
   const docCard = el("div", "card");
   docCard.appendChild(el("h2", null, `문서 ${docs.length}건`));
+
+  // 이 책장으로 끌어다 놓는 자리
+  const zone = el("div", "dropzone");
+  zone.innerHTML = `파일을 여기에 끌어다 놓으면 <b>${esc(name)}</b> 책장에 들어갑니다` +
+    `<br><span style="font-size:12px">탐색기에서 끌어오면 복사됩니다 (원본은 그대로). ` +
+    `인박스에서 끌어오면 이동합니다.</span>`;
+  makeDropTarget(zone, name, async () => {
+    await Promise.all([loadShelves(), loadStatus()]);
+  });
+  docCard.appendChild(zone);
+
   if (!docs.length) {
     docCard.appendChild(el("div", "empty", "문서가 없습니다."));
   }

@@ -17,7 +17,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -245,6 +245,32 @@ def create_app(root: Path, conn: sqlite3.Connection, lock: threading.Lock) -> Fa
         except organize.OrganizeError as e:
             return fail(str(e))
         return {"written": path}
+
+    @app.post("/api/import")
+    async def api_import(
+        collection: str = Form(...),
+        files: list[UploadFile] = File(...),
+    ):
+        """밖에서 끌어다 놓은 파일을 서재에 넣는다.
+
+        브라우저는 파일의 실제 경로를 주지 않으므로 원본을 지울 수 없다.
+        '이동'이 아니라 '가져오기'다.
+        """
+        added, failed = [], []
+        for upload in files:
+            try:
+                data = await upload.read()
+                with lock:
+                    result = organize.import_file(
+                        conn, root, collection, upload.filename or "", data
+                    )
+                added.append({"name": upload.filename, "to": result.dst, "note": result.note})
+            except (organize.OrganizeError, OutsideRootError) as e:
+                failed.append({"name": upload.filename, "error": str(e)})
+
+        if not added and failed:
+            return fail(failed[0]["error"])
+        return {"added": added, "failed": failed}
 
     @app.post("/api/collection")
     def api_create_collection(req: CreateCollectionRequest):

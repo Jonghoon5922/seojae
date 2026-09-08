@@ -318,3 +318,96 @@ def test_undo_collection_rename(client) -> None:
     assert c.post("/api/undo").status_code == 200
     assert (shelf / "업무규정").is_dir()
     assert not (shelf / "사규").exists()
+
+
+# ── 밖에서 파일 가져오기 (드래그앤드롭) ───────────────────────────────────
+
+
+def test_import_file_into_collection(client) -> None:
+    c, shelf, _ = client
+    res = c.post(
+        "/api/import",
+        data={"collection": "업무규정"},
+        files={"files": ("복리후생.md", "# 복리후생\n\n## 경조사비\n결혼 50만원.\n", "text/markdown")},
+    )
+
+    assert res.status_code == 200
+    assert res.json()["added"][0]["to"] == "업무규정/복리후생.md"
+    assert (shelf / "업무규정" / "복리후생.md").is_file()
+    assert c.get("/api/search", params={"q": "경조사비"}).json()["results"]
+
+
+def test_import_into_inbox(client) -> None:
+    c, shelf, _ = client
+    res = c.post(
+        "/api/import",
+        data={"collection": "_inbox"},
+        files={"files": ("아무거나.md", "# 메모\n사바티컬 검토.\n", "text/markdown")},
+    )
+
+    assert res.status_code == 200
+    assert (shelf / "_inbox" / "아무거나.md").is_file()
+    assert c.get("/api/status").json()["inbox_count"] == 2
+
+
+def test_import_never_overwrites(client) -> None:
+    c, shelf, _ = client
+    before = (shelf / "업무규정" / "휴가규정.md").read_text(encoding="utf-8")
+
+    res = c.post(
+        "/api/import",
+        data={"collection": "업무규정"},
+        files={"files": ("휴가규정.md", "# 덮어쓰기 시도\n", "text/markdown")},
+    )
+
+    assert res.json()["added"][0]["to"] == "업무규정/휴가규정 (2).md"
+    assert (shelf / "업무규정" / "휴가규정.md").read_text(encoding="utf-8") == before
+
+
+def test_import_strips_path_from_filename(client) -> None:
+    """브라우저가 준 이름은 믿지 않는다. 경로 성분을 떼고 이름만 쓴다."""
+    c, shelf, _ = client
+    res = c.post(
+        "/api/import",
+        data={"collection": "업무규정"},
+        files={"files": ("../../탈출.md", "# 탈출 시도\n", "text/markdown")},
+    )
+
+    assert res.status_code == 200
+    assert res.json()["added"][0]["to"] == "업무규정/탈출.md"
+    assert not (shelf.parent / "탈출.md").exists()
+
+
+def test_import_rejects_unsupported_type(client) -> None:
+    c, shelf, _ = client
+    res = c.post(
+        "/api/import",
+        data={"collection": "업무규정"},
+        files={"files": ("사진.png", "not really a png", "image/png")},
+    )
+
+    assert res.status_code == 400
+    assert not (shelf / "업무규정" / "사진.png").exists()
+
+
+def test_import_rejects_unknown_collection(client) -> None:
+    c, _, _ = client
+    res = c.post(
+        "/api/import",
+        data={"collection": "없는책장"},
+        files={"files": ("a.md", "# a\n", "text/markdown")},
+    )
+    assert res.status_code == 400
+
+
+def test_import_is_logged(client) -> None:
+    c, _, _ = client
+    c.post(
+        "/api/import",
+        data={"collection": "업무규정"},
+        files={"files": ("복리후생.md", "# 복리후생\n내용\n", "text/markdown")},
+    )
+
+    rows = c.get("/api/moves").json()
+    assert rows[0]["kind"] == "import"
+    assert rows[0]["dst"] == "업무규정/복리후생.md"
