@@ -11,7 +11,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from . import __version__
+from . import __version__, organize
 from .index import index_root, last_indexed_at, open_db
 from .paths import INBOX_DIRNAME, resolve_root
 from .search import failed_documents, get_document, list_collections, list_documents, search
@@ -289,6 +289,82 @@ def serve(
     watching = "" if no_watch else " + 파일 감시"
     err.print(f"[dim]MCP 서버 시작 (stdio){watching} — 루트: {root_path}[/dim]")
     run_server(root_path, watch=not no_watch, on_change=on_change)
+
+
+@app.command()
+def inbox(
+    root: str = RootArg,
+    limit: int = typer.Option(20, "--limit", "-n", help="보여줄 개수"),
+) -> None:
+    """미분류 파일 목록. Claude가 보는 것과 같은 내용이다."""
+    root_path, conn = _open(root)
+    items = organize.list_inbox(conn, root_path, limit=limit)
+
+    if not items:
+        console.print("[green]미분류 파일이 없다.[/green]")
+        conn.close()
+        return
+
+    for item in items:
+        flag = "" if item.status == "ok" else " [red](읽기 실패)[/red]"
+        console.print(f"\n[bold cyan]#{item.id} {item.filename}[/bold cyan]{flag}")
+        console.print(f"[dim]{item.path} · {item.size:,}바이트 · {item.added_at}[/dim]")
+        if item.excerpt:
+            console.print(item.excerpt[:300], highlight=False)
+        elif item.error:
+            console.print(f"[red]{item.error[:200]}[/red]", highlight=False)
+
+    console.print(f"\n[dim]{len(items)}건. Claude에게 '인박스 정리해줘'라고 하면 분류해준다.[/dim]")
+    conn.close()
+
+
+@app.command()
+def undo(root: str = RootArg) -> None:
+    """마지막 파일 이동이나 README 수정을 되돌린다."""
+    root_path, conn = _open(root)
+    try:
+        message = organize.undo_last(conn, root_path)
+    except organize.OrganizeError as e:
+        console.print(f"[yellow]{e}[/yellow]")
+        conn.close()
+        raise typer.Exit(code=1)
+
+    console.print(f"[green]{message}[/green]")
+    conn.close()
+
+
+@app.command()
+def moves(
+    root: str = RootArg,
+    limit: int = typer.Option(20, "--limit", "-n", help="보여줄 개수"),
+) -> None:
+    """파일을 옮기거나 README를 고친 기록."""
+    root_path, conn = _open(root)
+    records = organize.list_moves(conn, limit=limit)
+
+    if not records:
+        console.print("[dim]기록이 없다.[/dim]")
+        conn.close()
+        return
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("시각")
+    table.add_column("종류")
+    table.add_column("내용", overflow="fold", max_width=70)
+    table.add_column("되돌림")
+
+    for r in records:
+        detail = f"{r['src']} → {r['dst']}" if r["kind"] == "move" else r["dst"]
+        if r["note"]:
+            detail += f"\n[dim]{r['note']}[/dim]"
+        table.add_row(
+            r["ts"][:19].replace("T", " "),
+            r["kind"],
+            detail,
+            "O" if r["undone"] else "",
+        )
+    console.print(table)
+    conn.close()
 
 
 @app.command()

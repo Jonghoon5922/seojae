@@ -16,8 +16,9 @@ from typing import Any, Callable
 
 from mcp.server.mcpserver import MCPServer
 
-from . import __version__
+from . import __version__, organize
 from .index import open_db
+from .paths import OutsideRootError
 from .search import (
     document_total,
     get_document,
@@ -51,10 +52,13 @@ def build_instructions(conn: sqlite3.Connection, root: Path) -> str:
     else:
         lines.append("아직 책장이 없다. 루트 폴더 아래에 폴더를 만들고 문서를 넣으면 색인된다.")
 
-    inbox = [c for c in list_collections(conn) if c.is_inbox]
-    if inbox and inbox[0].doc_count:
+    pending = organize.inbox_count(conn)
+    if pending:
         lines.append("")
-        lines.append(f"아직 분류되지 않은 파일이 {inbox[0].doc_count}건 있다 (검색 결과에서는 기본 제외).")
+        lines.append(
+            f"아직 분류되지 않은 파일이 {pending}건 있다 (검색 결과에서는 기본 제외). "
+            "사용자가 정리를 부탁하면 list_inbox로 내용을 보고 file_document로 알맞은 책장에 꽂아라."
+        )
 
     lines += [
         "",
@@ -208,6 +212,133 @@ def create_server(
                 "section 인자로 필요한 부분을 지정해 다시 호출하라."
             )
         return result
+
+    # ── 정리 축 ──────────────────────────────────────────────────────────
+
+    @server.tool(
+        name="list_inbox",
+        description=(
+            "아직 어느 책장에도 꽂히지 않은 파일 목록. 각 파일의 본문 앞부분이 함께 온다. "
+            "이걸 읽고 어느 책장에 속하는지 판단한 뒤 file_document로 옮긴다."
+        ),
+    )
+    def list_inbox_tool(limit: int = 20) -> dict[str, Any]:
+        with lock:
+            items = organize.list_inbox(conn, root, limit=limit)
+            shelves = [
+                {"name": c.dirname, "description": c.description}
+                for c in list_collections(conn, include_inbox=False)
+            ]
+        return {
+            "files": [
+                {
+                    "document_id": i.id,
+                    "filename": i.filename,
+                    "path": i.path,
+                    "size": i.size,
+                    "added_at": i.added_at,
+                    "excerpt": i.excerpt,
+                    "status": i.status,
+                    "error": i.error,
+                }
+                for i in items
+            ],
+            # 어디로 보낼지 고르려면 선택지가 같이 있어야 한다
+            "collections": shelves,
+        }
+
+    @server.tool(
+        name="file_document",
+        description=(
+            "미분류 파일을 책장으로 옮긴다. 파일을 실제로 이동시키므로 신중히 부른다. "
+            "없는 책장으로 보내려면 create_collection=true가 필요하다. "
+            "같은 이름이 있으면 덮어쓰지 않고 접미사를 붙인다. "
+            "잘못했으면 사용자가 CLI에서 'seojae undo'로 되돌릴 수 있다."
+        ),
+    )
+    def file_document_tool(
+        document_id: int,
+        collection: str,
+        new_name: str | None = None,
+        create_collection: bool = False,
+    ) -> dict[str, Any]:
+        try:
+            with lock:
+                result = organize.file_document(
+                    conn,
+                    root,
+                    document_id,
+                    collection,
+                    new_name=new_name,
+                    create_collection=create_collection,
+                )
+        except (organize.OrganizeError, OutsideRootError) as e:
+            return {"error": str(e)}
+
+        return {
+            "moved": True,
+            "document_id": result.document_id,
+            "from": result.src,
+            "to": result.dst,
+            "collection": result.collection,
+            "created_collection": result.created_collection,
+            "note": result.note,
+        }
+
+    @server.tool(
+        name="describe_collection",
+        description=(
+            "책장 설명(README)을 쓰기 위한 재료를 모아준다. 문서 제목·헤딩·발췌·자주 쓰는 용어. "
+            "이걸 읽고 '어떤 질문에 이 책장을 써야 하는지'를 문장으로 써서 "
+            "write_collection_readme로 저장한다."
+        ),
+    )
+    def describe_collection_tool(collection: str) -> dict[str, Any]:
+        try:
+            with lock:
+                material = organize.describe_collection(conn, root, collection)
+        except organize.OrganizeError as e:
+            return {"error": str(e)}
+
+        return {
+            "collection": material.collection,
+            "document_count": material.document_count,
+            "has_readme": material.has_readme,
+            "current_description": material.current_description,
+            "documents": material.documents,
+            "frequent_terms": material.frequent_terms,
+            "guidance": (
+                "description은 '어떤 질문에 이 책장을 써야 하는지'를 적는다. "
+                "책장에 무엇이 들어있는지가 아니라, 무엇을 물어볼 때 여는지를 쓴다. "
+                "이 문장이 다음 연결부터 검색 라우팅의 근거가 된다."
+            ),
+        }
+
+    @server.tool(
+        name="write_collection_readme",
+        description=(
+            "책장의 README.md 프론트매터를 갱신한다. 본문은 그대로 두고 원본은 백업한다. "
+            "describe_collection으로 재료를 먼저 읽어라."
+        ),
+    )
+    def write_collection_readme_tool(
+        collection: str,
+        name: str,
+        description: str,
+        tags: list[str] | None = None,
+    ) -> dict[str, Any]:
+        try:
+            with lock:
+                path = organize.write_collection_readme(
+                    conn, root, collection, name, description, tags
+                )
+        except organize.OrganizeError as e:
+            return {"error": str(e)}
+
+        return {
+            "written": path,
+            "note": "설명이 검색 라우팅에 반영되는 것은 다음 연결부터다 (instructions는 연결 시 한 번 전달된다).",
+        }
 
     return server
 

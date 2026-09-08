@@ -89,6 +89,22 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     tokens,
     tokenize = 'unicode61 remove_diacritics 0'
 );
+
+-- 파일을 옮기거나 README를 고친 기록. 되돌리기(undo)의 근거다.
+-- 되돌릴 수 없는 정리는 하지 않는다는 원칙이 이 표에 걸려 있다.
+CREATE TABLE IF NOT EXISTS moves (
+    id          INTEGER PRIMARY KEY,
+    ts          TEXT NOT NULL,
+    kind        TEXT NOT NULL,                 -- move | readme
+    src         TEXT NOT NULL DEFAULT '',      -- 루트 기준 상대 경로
+    dst         TEXT NOT NULL DEFAULT '',
+    backup      TEXT NOT NULL DEFAULT '',      -- README 원본 사본 (없었으면 빈 값)
+    created_dir TEXT NOT NULL DEFAULT '',      -- 이 작업으로 만든 폴더
+    note        TEXT NOT NULL DEFAULT '',
+    undone      INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_moves_undone ON moves(undone, id);
 """
 
 

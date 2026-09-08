@@ -39,15 +39,29 @@ def test_instructions_list_collections(indexed: Path) -> None:
 
     assert "업무규정" in text
     assert "휴가" in text  # description이 라우팅 근거로 들어간다
-    assert "_inbox" not in text  # 인박스는 책장 목록에 끼지 않는다
     assert "분류되지 않은 파일이 1건" in text
+
+    # 인박스는 책장 목록에 끼지 않는다 (도구 이름 list_inbox와 헷갈리지 않게 목록 줄만 본다)
+    shelves = [line for line in text.splitlines() if line.startswith("- ")]
+    assert shelves
+    assert not any(line.startswith("- _inbox") for line in shelves)
 
 
 def test_tools_exposed_with_spec_names(indexed: Path) -> None:
     server = create_server(indexed)
-    tools = run(server.list_tools())
-    names = {t.name for t in tools}
-    assert names == {"list_collections", "list_documents", "search", "get_document"}
+    names = {t.name for t in run(server.list_tools())}
+    assert names == {
+        # 검색 축
+        "list_collections",
+        "list_documents",
+        "search",
+        "get_document",
+        # 정리 축
+        "list_inbox",
+        "file_document",
+        "describe_collection",
+        "write_collection_readme",
+    }
 
 
 def test_every_tool_has_description(indexed: Path) -> None:
