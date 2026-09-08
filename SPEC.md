@@ -322,9 +322,10 @@ PDF는 그보다 훨씬 크다. 헤딩을 목차처럼 접어두고 **찾던 대
 검색창에서 한글은 조합 중에도 Enter가 온다(마지막 글자를 확정하는 Enter).
 그대로 검색하면 확정 전 문자열로 검색된다. `isComposing`과 `keyCode === 229`로 거른다.
 
-## 12-5. 배포 (6단계 일부)
+## 12-5. 배포 (6단계 일부, 완료)
 
-PyPI 패키지 `seojae-mcp`. `uvx`로 설치 없이 실행한다.
+PyPI 패키지 [`seojae-mcp`](https://pypi.org/project/seojae-mcp/) 공개 (2026-09-08, v0.1.0).
+`uvx`로 설치 없이 실행한다.
 
 ```json
 { "mcpServers": { "seojae": { "command": "uvx", "args": ["seojae-mcp", "serve", "C:/내서재"] } } }

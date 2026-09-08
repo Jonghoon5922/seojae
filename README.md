@@ -1,5 +1,9 @@
 # 서재 (Seojae)
 
+[![PyPI](https://img.shields.io/pypi/v/seojae-mcp)](https://pypi.org/project/seojae-mcp/)
+[![Python](https://img.shields.io/pypi/pyversions/seojae-mcp)](https://pypi.org/project/seojae-mcp/)
+[![License](https://img.shields.io/pypi/l/seojae-mcp)](LICENSE)
+
 **폴더에 문서를 꽂아두면 Claude가 꺼내 읽는 로컬 RAG MCP 서버.**
 
 문서를 폴더에 정리해두면 자동으로 색인해서 MCP로 노출한다.
@@ -18,7 +22,7 @@ Claude → search(query="예외 처리 규약", collection="개발가이드")
 문서는 **PC를 떠나지 않는다.** 네트워크 전송 없음, 외부 API 호출 없음, 계정 없음.
 
 > [!NOTE]
-> 개발 중이다. 6단계 중 5단계까지 동작한다. 아래 [진행 상태](#진행-상태) 참고.
+> 5단계까지 동작하고 PyPI에 배포돼 있다. 아래 [진행 상태](#진행-상태) 참고.
 
 ---
 
@@ -459,7 +463,9 @@ _inbox\  ──┐
 - [x] **3단계** — 파일 감시 증분 색인, `init`
 - [x] **4단계** — 인박스 + 정리 축 (분류·되돌리기·책장 설명 작성)
 - [x] **5단계** — 웹 UI (검색 근거 재현 + 인박스 정리)
-- [ ] 6단계 — 로컬 임베딩(옵션), `.mcpb` 번들, 패키지 배포
+- [x] **패키지 배포** — [PyPI `seojae-mcp`](https://pypi.org/project/seojae-mcp/)
+- [ ] `.mcpb` 번들 (Claude Desktop 더블클릭 설치)
+- [ ] 로컬 임베딩 (옵션)
 
 설계 결정과 그 근거는 전부 [SPEC.md](SPEC.md)에 있다.
 
