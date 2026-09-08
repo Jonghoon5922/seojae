@@ -322,7 +322,36 @@ PDF는 그보다 훨씬 크다. 헤딩을 목차처럼 접어두고 **찾던 대
 검색창에서 한글은 조합 중에도 Enter가 온다(마지막 글자를 확정하는 Enter).
 그대로 검색하면 확정 전 문자열로 검색된다. `isComposing`과 `keyCode === 229`로 거른다.
 
-## 12-5. 임베딩을 붙일 때 (6단계 설계 메모)
+## 12-5. 배포 (6단계 일부)
+
+PyPI 패키지 `seojae-mcp`. `uvx`로 설치 없이 실행한다.
+
+```json
+{ "mcpServers": { "seojae": { "command": "uvx", "args": ["seojae-mcp", "serve", "C:/내서재"] } } }
+```
+
+이 세 줄이 배포의 목적이다. "폴더 지정 한 번으로 끝"이라는 차별점은
+설치 안내가 clone·sync로 시작하는 순간 무너진다.
+
+### 결정
+
+| 항목 | 결정 | 이유 |
+|---|---|---|
+| 콘솔 스크립트 두 개 | `seojae`와 `seojae-mcp` 둘 다 등록 | `uvx`는 패키지 이름과 같은 명령을 찾는다. 별칭이 없으면 `uvx --from seojae-mcp seojae ...` 로 길어진다 |
+| `mcp>=2.0` | 하한을 2.0으로 | 1.x에는 `MCPServer`가 없다(FastMCP에서 개명). `>=1.2`로 두면 새로 설치한 사람이 import 에러를 본다 |
+| `uvicorn` 명시 | 의존성에 직접 추가 | `seojae ui`가 직접 호출한다. mcp를 통해 딸려오지만 우리 코드가 쓰므로 명시한다 |
+| 웹 UI 필수 의존 | optional-dependencies로 빼지 않음 | 화면이 있고 없고가 제품 인상을 가른다. FastAPI는 가볍다 |
+
+### 검증 (휠에서, 저장소 밖)
+
+`uvx --from dist\seojae_mcp-0.1.0-py3-none-any.whl seojae-mcp ...` 로 확인:
+
+- `init` / `reindex` / `status` / `search` / `inbox` 정상
+- MCP 서버 기동, 도구 8개 노출, instructions 주입, 검색 출처 반환
+- 웹 UI 200 OK — 패키지에 포함된 `static\index.html` 서빙 확인
+- **127.0.0.1 전용 바인딩 확인** — 외부 IP로는 접속 거부
+
+## 12-6. 임베딩을 붙일 때 (6단계 설계 메모)
 
 벡터는 LLM이 읽는 것이 아니다. 유사도를 계산하는 것은 이 코드고, LLM에게 주는 것은 언제나
 원문과 출처다. 따라서 벡터를 어디에 두는지는 LLM과 무관하다.

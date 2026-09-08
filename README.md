@@ -218,18 +218,26 @@ BM25의 정직한 한계다. 임베딩을 붙이는 대신 이렇게 대응한�
 
 ## 시작하기
 
-아직 패키지로 배포하지 않았다. 소스에서 실행한다.
+[uv](https://docs.astral.sh/uv/)만 있으면 설치할 것이 없다. `uvx`가 알아서 받아 실행한다.
 
 ```bash
-git clone https://github.com/Jonghoon5922/seojae.git
-cd seojae
-uv sync
+uvx seojae-mcp init 내서재
 ```
 
-폴더를 하나 만들고 문서를 넣은 뒤 색인한다.
+```
+서재를 만들었다: C:\내서재
+
+  + 내서재\
+  + 내서재\_inbox\
+  + 내서재\_inbox\여기에-던져두세요.txt
+  + 내서재\예시책장\
+  + 내서재\예시책장\README.md
+```
+
+폴더를 만들고 문서를 넣은 뒤 색인한다. **폴더 하나가 책장 하나다.**
 
 ```bash
-uv run seojae reindex 내서재
+uvx seojae-mcp reindex 내서재
 ```
 
 ```
@@ -240,7 +248,7 @@ uv run seojae reindex 내서재
 상태를 본다.
 
 ```bash
-uv run seojae status 내서재
+uvx seojae-mcp status 내서재
 ```
 
 ```
@@ -263,7 +271,7 @@ README가 없는 폴더는 `자동`으로 표시되고, 폴더명·파일명·�
 검색해본다. **Claude가 쓰는 것과 완전히 같은 함수다.**
 
 ```bash
-uv run seojae search 내서재 "연차 휴가 며칠" -k 2
+uvx seojae-mcp search 내서재 "연차 휴가 며칠" -k 2
 ```
 
 ```
@@ -277,17 +285,17 @@ uv run seojae search 내서재 "연차 휴가 며칠" -k 2
 출처가 파일 경로에서 끝나지 않고 **헤딩 경로**(`취업규칙 > 연차 유급휴가`)까지 붙는다.
 PDF는 `p.7`, docx는 절 제목이 같은 자리에 들어간다.
 
-### Claude Code에 연결
+### Claude에 연결
 
-`.mcp.json`을 만든다.
+`.mcp.json`(Claude Code) 또는 Claude Desktop 설정에 이 세 줄을 넣는다.
+**미리 설치할 것도, 서버를 띄워둘 것도 없다.** Claude가 필요할 때 실행하고 끝나면 정리한다.
 
 ```json
 {
   "mcpServers": {
     "seojae": {
-      "command": "uv",
-      "args": ["run", "seojae", "serve", "C:/내서재"],
-      "cwd": "C:/seojae를-clone한-경로"
+      "command": "uvx",
+      "args": ["seojae-mcp", "serve", "C:/내서재"]
     }
   }
 }
@@ -340,7 +348,7 @@ seojae serve     <root>          MCP(stdio) 서버 + 파일 감시
 ## 웹 UI — 사람이 근거를 확인하는 자리
 
 ```bash
-uv run seojae ui 내서재
+uvx seojae-mcp ui 내서재
 ```
 
 `http://127.0.0.1:8765`. **127.0.0.1에만 바인딩한다.** 네트워크에 열리지 않는다.
@@ -460,11 +468,18 @@ _inbox\  ──┐
 ## 스택
 
 Python 3.11+ · [uv](https://docs.astral.sh/uv/) · MCP Python SDK · SQLite FTS5 ·
-[kiwipiepy](https://github.com/bab2min/kiwipiepy) · pypdf · python-docx · watchdog
+[kiwipiepy](https://github.com/bab2min/kiwipiepy) · pypdf · python-docx · watchdog · FastAPI
+
+### 소스에서 개발하려면
 
 ```bash
+git clone https://github.com/Jonghoon5922/seojae.git
+cd seojae
+uv sync
 uv run pytest
 ```
+
+`uv run seojae <명령>` 으로 실행한다. 웹 UI를 띄우려면 `uv run seojae ui testdata/내서재`.
 
 ---
 
