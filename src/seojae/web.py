@@ -16,8 +16,9 @@ import sqlite3
 import threading
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -61,8 +62,40 @@ class RenameCollectionRequest(BaseModel):
     name: str
 
 
+def _is_local_origin(origin: str) -> bool:
+    """127.0.0.1 / localhost 에서 온 요청인가."""
+    try:
+        host = urlparse(origin).hostname or ""
+    except ValueError:
+        return False
+    return host in {"127.0.0.1", "localhost", "::1"}
+
+
 def create_app(root: Path, conn: sqlite3.Connection, lock: threading.Lock) -> FastAPI:
     app = FastAPI(title=f"서재 — {root.name}", version=__version__, docs_url=None, redoc_url=None)
+
+    @app.middleware("http")
+    async def block_foreign_origins(request: Request, call_next):
+        """다른 사이트가 이 서버를 조종하지 못하게 한다.
+
+        127.0.0.1 서버는 인증이 없다. 그런데 브라우저는 아무 웹페이지에서나
+        localhost 로 요청을 보내는 것 자체는 막지 않는다 — 응답을 '읽는' 것만
+        CORS로 막는다. 그래서 쓰기 동작은 그대로 실행된다.
+
+        JSON POST는 프리플라이트가 걸려 브라우저가 막아주지만,
+        multipart/form-data 와 본문 없는 POST는 프리플라이트가 없다.
+        실제로 악성 사이트 표식을 단 요청으로 파일이 심어지는 것을 확인했다.
+
+        Origin 이 붙어 있으면서 우리 것이 아니면 거부한다. 브라우저는 모든 POST에
+        Origin 을 붙이므로 이걸로 걸러진다. curl 처럼 Origin 이 없는 요청은
+        사용자 본인의 도구로 보고 통과시킨다.
+        """
+        origin = request.headers.get("origin")
+        if origin and not _is_local_origin(origin):
+            return JSONResponse(
+                {"error": "다른 사이트에서 온 요청은 받지 않는다."}, status_code=403
+            )
+        return await call_next(request)
 
     def fail(message: str, status: int = 400) -> JSONResponse:
         return JSONResponse({"error": message}, status_code=status)

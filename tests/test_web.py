@@ -411,3 +411,46 @@ def test_import_is_logged(client) -> None:
     rows = c.get("/api/moves").json()
     assert rows[0]["kind"] == "import"
     assert rows[0]["dst"] == "업무규정/복리후생.md"
+
+
+# ── 다른 사이트의 조종 차단 ───────────────────────────────────────────────
+# 127.0.0.1 서버는 인증이 없다. 브라우저는 아무 웹페이지에서나 localhost 로
+# 요청을 보내는 것 자체는 막지 않는다 — 응답을 '읽는' 것만 CORS로 막는다.
+# 실제로 악성 Origin 을 단 요청으로 파일이 심어지는 것을 확인하고 막았다.
+
+EVIL = {"Origin": "https://evil.example.com"}
+
+
+def test_foreign_origin_cannot_read(client) -> None:
+    c, _, _ = client
+    assert c.get("/api/search", params={"q": "연차"}, headers=EVIL).status_code == 403
+    assert c.get("/api/status", headers=EVIL).status_code == 403
+
+
+def test_foreign_origin_cannot_write(client) -> None:
+    c, shelf, _ = client
+    res = c.post(
+        "/api/import",
+        data={"collection": "업무규정"},
+        files={"files": ("악성.md", "# 심어진 파일\n", "text/markdown")},
+        headers=EVIL,
+    )
+    assert res.status_code == 403
+    assert not (shelf / "업무규정" / "악성.md").exists()
+
+
+def test_foreign_origin_cannot_undo(client) -> None:
+    c, _, _ = client
+    assert c.post("/api/undo", headers=EVIL).status_code == 403
+
+
+def test_local_origin_is_allowed(client) -> None:
+    c, _, _ = client
+    for origin in ("http://127.0.0.1:8765", "http://localhost:8765"):
+        assert c.get("/api/status", headers={"Origin": origin}).status_code == 200
+
+
+def test_no_origin_is_allowed(client) -> None:
+    """curl 처럼 Origin 이 없는 요청은 사용자 본인의 도구로 본다."""
+    c, _, _ = client
+    assert c.get("/api/status").status_code == 200

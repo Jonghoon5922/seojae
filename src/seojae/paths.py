@@ -56,12 +56,17 @@ def inbox_dir(root: Path) -> Path:
 
 
 def is_inside(root: Path, path: Path) -> bool:
-    """path가 root 안에 있는지. 심볼릭 링크를 푼 실제 경로로 판단한다."""
+    """path가 root 안에 있는지. 심볼릭 링크를 푼 실제 경로로 판단한다.
+
+    **양쪽 다 resolve해야 한다.** 한쪽만 풀면 루트가 8.3 단축 경로(`NB-240~1`)이거나
+    링크일 때 루트 안의 파일을 "밖"으로 잘못 판정한다. 실제로 그 버그가 있었다.
+    """
     try:
         resolved = path.resolve()
+        base = root.resolve()
     except OSError:
         return False
-    return resolved == root or root in resolved.parents
+    return resolved == base or base in resolved.parents
 
 
 def ensure_inside(root: Path, path: Path) -> Path:
