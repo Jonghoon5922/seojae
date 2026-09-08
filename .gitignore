@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+
+# 서재 색인
+.seojae/
+*.db
+*.db-shm
+*.db-wal
+
+# 테스트 데이터 (고객 문서 사본 — 커밋 금지)
+testdata/
+
+# OS / 에디터
+Thumbs.db
+.DS_Store
+.idea/
+.vscode/
