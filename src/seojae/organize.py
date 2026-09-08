@@ -291,6 +291,8 @@ def undo_last(conn, root: Path) -> str:
         message = _undo_move(conn, root, row)
     elif row["kind"] == "readme":
         message = _undo_readme(conn, root, row)
+    elif row["kind"] == "collection":
+        message = _undo_collection(conn, root, row)
     else:
         raise OrganizeError(f"모르는 작업 종류: {row['kind']}")
 
@@ -342,6 +344,45 @@ def _undo_readme(conn, root: Path, row) -> str:
     collection = Path(row["dst"]).parts[0]
     ensure_collection(root, conn, collection)
     return f"되돌렸다: {row['dst']} 삭제 (원래 없던 파일)"
+
+
+def _undo_collection(conn, root: Path, row) -> str:
+    """책장 생성/이름변경 되돌리기."""
+    # 생성이었다면 (src 가 비었다) 빈 폴더만 치운다
+    if not row["src"]:
+        directory = root / row["dst"]
+        if not directory.is_dir():
+            return f"되돌릴 것이 없다: {row['dst']} 폴더가 이미 없다"
+
+        leftovers = [
+            p for p in directory.rglob("*")
+            if p.is_file() and not p.name.lower().startswith("readme.")
+        ]
+        if leftovers:
+            raise OrganizeError(
+                f"'{row['dst']}'에 파일이 {len(leftovers)}건 있다. 되돌리면 사라지므로 멈춘다."
+            )
+        for doc in conn.execute(
+            "SELECT id FROM documents WHERE collection = ?", (row["dst"],)
+        ).fetchall():
+            _delete_document_row(conn, doc["id"])
+        conn.execute("DELETE FROM collections WHERE dirname = ?", (row["dst"],))
+        shutil.rmtree(directory)
+        return f"되돌렸다: '{row['dst']}' 책장 삭제"
+
+    # 이름 변경이었다면 되돌린다
+    current = root / row["dst"]
+    previous = root / row["src"]
+    if not current.is_dir():
+        raise OrganizeError(f"'{row['dst']}' 책장이 없다.")
+    if previous.exists():
+        raise OrganizeError(f"'{row['src']}' 이름이 이미 쓰이고 있어 되돌릴 수 없다.")
+
+    shutil.move(str(current), str(previous))
+    _repoint_documents(conn, row["dst"], row["src"])
+    conn.execute("DELETE FROM collections WHERE dirname = ?", (row["dst"],))
+    ensure_collection(root, conn, row["src"])
+    return f"되돌렸다: 책장 이름 {row['dst']} → {row['src']}"
 
 
 def list_moves(conn, limit: int = 20) -> list[dict[str, Any]]:
@@ -480,6 +521,111 @@ def write_collection_readme(
     conn.commit()
 
     return rel(root, target)
+
+
+# ── 책장 만들기·이름 바꾸기 ───────────────────────────────────────────────
+
+
+def create_collection(conn, root: Path, name: str, description: str = "") -> str:
+    """빈 책장(폴더)을 만든다. 설명을 주면 README도 함께 쓴다."""
+    dirname = _safe_collection_name(name)
+    directory = root / dirname
+
+    if directory.exists():
+        raise OrganizeError(f"'{dirname}' 책장이 이미 있다.")
+
+    directory.mkdir(parents=True)
+    conn.execute(
+        "INSERT INTO moves(ts, kind, src, dst, created_dir, note) VALUES(?, 'collection', '', ?, ?, ?)",
+        (now_iso(), dirname, dirname, f"'{dirname}' 책장 생성"),
+    )
+
+    if description.strip():
+        # write_collection_readme 가 자체 커밋을 한다
+        write_collection_readme(conn, root, dirname, dirname, description)
+    else:
+        ensure_collection(root, conn, dirname)
+        conn.commit()
+
+    return dirname
+
+
+def rename_collection(conn, root: Path, old: str, new: str) -> str:
+    """책장 폴더 이름을 바꾼다. 파일 내용은 그대로라 경로만 고쳐 색인을 유지한다."""
+    old_name = _safe_collection_name(old)
+    new_name = _safe_collection_name(new)
+
+    if old_name == new_name:
+        raise OrganizeError("이름이 같다.")
+
+    source = root / old_name
+    target = root / new_name
+    if not source.is_dir():
+        raise OrganizeError(f"'{old_name}' 책장이 없다.")
+    if target.exists():
+        raise OrganizeError(f"'{new_name}' 이름은 이미 쓰이고 있다.")
+    if not is_inside(root, target):
+        raise OutsideRootError("루트 밖으로는 옮기지 않는다.")
+
+    try:
+        shutil.move(str(source), str(target))
+    except OSError as e:
+        raise OrganizeError(f"이름을 바꾸지 못했다: {e}") from e
+
+    _repoint_documents(conn, old_name, new_name)
+    conn.execute("DELETE FROM collections WHERE dirname = ?", (old_name,))
+    ensure_collection(root, conn, new_name)
+    conn.execute(
+        "INSERT INTO moves(ts, kind, src, dst, note) VALUES(?, 'collection', ?, ?, ?)",
+        (now_iso(), old_name, new_name, f"책장 이름 변경: {old_name} → {new_name}"),
+    )
+    conn.commit()
+    return new_name
+
+
+def _repoint_documents(conn, old_name: str, new_name: str) -> None:
+    """폴더만 바뀌었으므로 다시 읽지 않고 경로만 고친다.
+
+    576건짜리 책장을 재색인하면 80초가 걸린다. 내용이 그대로인데 다시 읽을 이유가 없다.
+    """
+    conn.execute(
+        """
+        UPDATE documents
+           SET path = ? || substr(path, ?),
+               collection = ?
+         WHERE collection = ?
+        """,
+        (new_name + "/", len(old_name) + 2, new_name, old_name),
+    )
+
+
+def delete_collection_if_empty(conn, root: Path, name: str) -> bool:
+    """빈 책장만 지운다. 파일이 남아 있으면 거부한다."""
+    dirname = _safe_collection_name(name)
+    directory = root / dirname
+    if not directory.is_dir():
+        raise OrganizeError(f"'{dirname}' 책장이 없다.")
+
+    remaining = [p for p in directory.rglob("*") if p.is_file() and not p.name.lower().startswith("readme.")]
+    if remaining:
+        raise OrganizeError(
+            f"'{dirname}'에 파일이 {len(remaining)}건 남아 있다. 먼저 다른 책장으로 옮기라."
+        )
+
+    for row in conn.execute(
+        "SELECT id FROM documents WHERE collection = ?", (dirname,)
+    ).fetchall():
+        _delete_document_row(conn, row["id"])
+    conn.execute("DELETE FROM collections WHERE dirname = ?", (dirname,))
+    shutil.rmtree(directory)
+    conn.commit()
+    return True
+
+
+def _delete_document_row(conn, doc_id: int) -> None:
+    from .index import _delete_document
+
+    _delete_document(conn, doc_id)
 
 
 def inbox_count(conn) -> int:

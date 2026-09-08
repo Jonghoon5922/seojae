@@ -52,6 +52,15 @@ class ReadmeRequest(BaseModel):
     tags: list[str] | None = None
 
 
+class CreateCollectionRequest(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class RenameCollectionRequest(BaseModel):
+    name: str
+
+
 def create_app(root: Path, conn: sqlite3.Connection, lock: threading.Lock) -> FastAPI:
     app = FastAPI(title=f"서재 — {root.name}", version=__version__, docs_url=None, redoc_url=None)
 
@@ -236,6 +245,35 @@ def create_app(root: Path, conn: sqlite3.Connection, lock: threading.Lock) -> Fa
         except organize.OrganizeError as e:
             return fail(str(e))
         return {"written": path}
+
+    @app.post("/api/collection")
+    def api_create_collection(req: CreateCollectionRequest):
+        try:
+            with lock:
+                name = organize.create_collection(
+                    conn, root, req.name, req.description or ""
+                )
+        except (organize.OrganizeError, OutsideRootError) as e:
+            return fail(str(e))
+        return {"created": name}
+
+    @app.patch("/api/collection/{collection}")
+    def api_rename_collection(collection: str, req: RenameCollectionRequest):
+        try:
+            with lock:
+                name = organize.rename_collection(conn, root, collection, req.name)
+        except (organize.OrganizeError, OutsideRootError) as e:
+            return fail(str(e))
+        return {"renamed": name}
+
+    @app.delete("/api/collection/{collection}")
+    def api_delete_collection(collection: str):
+        try:
+            with lock:
+                organize.delete_collection_if_empty(conn, root, collection)
+        except (organize.OrganizeError, OutsideRootError) as e:
+            return fail(str(e))
+        return {"deleted": collection}
 
     @app.post("/api/reindex")
     def api_reindex() -> dict[str, Any]:

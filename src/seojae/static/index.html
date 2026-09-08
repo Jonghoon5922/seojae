@@ -117,6 +117,12 @@
   th { color: var(--dim); font-weight: 600; }
   td.done { color: var(--dim); }
 
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 12px; color: var(--dim); margin-bottom: 5px; font-weight: 600; }
+  .field input, .field textarea { width: 100%; }
+  .field textarea { resize: vertical; line-height: 1.6; }
+  .field small { display: block; color: var(--dim); font-size: 12px; margin-top: 5px; }
+
   .empty { color: var(--dim); padding: 26px 0; text-align: center; }
   .toast {
     position: fixed; right: 18px; bottom: 18px; background: var(--ink); color: var(--bg);
@@ -149,6 +155,7 @@
 
 <nav>
   <button data-tab="search" class="on">검색</button>
+  <button data-tab="shelves">책장</button>
   <button data-tab="inbox">인박스<span class="badge" id="inboxBadge" hidden>0</span></button>
   <button data-tab="moves">기록</button>
 </nav>
@@ -178,6 +185,24 @@
           <div id="results"><div class="empty">검색어를 입력하세요.</div></div>
         </div>
         <div class="card doc" id="docCard" hidden></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 책장 관리 ─────────────────────────────────────────── -->
+  <section id="tab-shelves" hidden>
+    <div class="layout">
+      <aside>
+        <div class="card">
+          <div class="row" style="margin-bottom:10px">
+            <h2 style="margin:0;flex:1">책장</h2>
+            <button class="act ghost" id="newShelfBtn">+ 새 책장</button>
+          </div>
+          <div id="shelfList"></div>
+        </div>
+      </aside>
+      <div id="shelfEditor">
+        <div class="card"><div class="empty">왼쪽에서 책장을 고르세요.</div></div>
       </div>
     </div>
   </section>
@@ -462,6 +487,203 @@ async function loadInbox() {
   }
 }
 
+// ── 책장 관리 ───────────────────────────────────────────────
+let openShelf = null;
+
+async function loadShelves() {
+  const s = await api("/api/status");
+  state.collections = s.collections;
+
+  const box = $("#shelfList");
+  box.innerHTML = "";
+  if (!s.collections.length) {
+    box.appendChild(el("div", "empty", "책장이 없습니다."));
+  }
+  for (const c of s.collections) {
+    const b = el("button", "shelf" + (openShelf === c.name ? " on" : ""));
+    b.innerHTML = `<span class="n">${c.doc_count}</span>${esc(c.name)}` +
+      `<span class="desc">${esc(c.description)}</span>`;
+    b.onclick = () => openShelfEditor(c.name);
+    box.appendChild(b);
+  }
+  if (openShelf && s.collections.some(c => c.name === openShelf)) {
+    await openShelfEditor(openShelf, true);
+  }
+}
+
+async function openShelfEditor(name, keepScroll) {
+  openShelf = name;
+  document.querySelectorAll("#shelfList .shelf").forEach(x => x.classList.remove("on"));
+
+  const info = state.collections.find(c => c.name === name) || {};
+  let material = {};
+  try { material = await api(`/api/collection/${encodeURIComponent(name)}/material`); }
+  catch (e) { toast(e.message, true); }
+
+  const box = $("#shelfEditor");
+  box.innerHTML = "";
+
+  // ── 이름·설명 편집 ──
+  const card = el("div", "card");
+  card.appendChild(el("h2", null, "책장 정보"));
+
+  const nameRow = el("div", "field");
+  nameRow.appendChild(el("label", null, "폴더 이름"));
+  const nameIn = el("input");
+  nameIn.type = "text";
+  nameIn.value = name;
+  nameRow.appendChild(nameIn);
+  nameRow.appendChild(el("small", null, "바꾸면 폴더가 실제로 이름이 바뀝니다. 되돌릴 수 있습니다."));
+  card.appendChild(nameRow);
+
+  const titleRow = el("div", "field");
+  titleRow.appendChild(el("label", null, "표시 이름 (name)"));
+  const titleIn = el("input");
+  titleIn.type = "text";
+  titleIn.value = info.title || name;
+  titleRow.appendChild(titleIn);
+  card.appendChild(titleRow);
+
+  const descRow = el("div", "field");
+  descRow.appendChild(el("label", null, "설명 (description)"));
+  const descIn = el("textarea");
+  descIn.rows = 4;
+  descIn.value = info.description || "";
+  descRow.appendChild(descIn);
+  descRow.appendChild(el("small", null,
+    "“어떤 질문에 이 책장을 써야 하는지”를 적습니다. 이 문장이 Claude가 책장을 고르는 근거가 됩니다."));
+  card.appendChild(descRow);
+
+  const tagRow = el("div", "field");
+  tagRow.appendChild(el("label", null, "태그 (쉼표로 구분)"));
+  const tagIn = el("input");
+  tagIn.type = "text";
+  tagIn.value = (info.tags || []).join(", ");
+  tagRow.appendChild(tagIn);
+  card.appendChild(tagRow);
+
+  const actions = el("div", "row");
+  const save = el("button", "act", "저장");
+  save.onclick = async () => {
+    save.disabled = true;
+    try {
+      if (nameIn.value.trim() && nameIn.value.trim() !== name) {
+        const r = await api(`/api/collection/${encodeURIComponent(name)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: nameIn.value.trim() }),
+        });
+        openShelf = r.renamed;
+      }
+      await api("/api/readme", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          collection: openShelf,
+          name: titleIn.value.trim() || openShelf,
+          description: descIn.value.trim(),
+          tags: tagIn.value.split(",").map(t => t.trim()).filter(Boolean),
+        }),
+      });
+      toast("저장했습니다. README.md에 반영됩니다.");
+      await Promise.all([loadShelves(), loadStatus()]);
+    } catch (e) { toast(e.message, true); }
+    save.disabled = false;
+  };
+  actions.appendChild(save);
+
+  const del = el("button", "act ghost", "빈 책장 삭제");
+  del.onclick = async () => {
+    try {
+      await api(`/api/collection/${encodeURIComponent(openShelf)}`, { method: "DELETE" });
+      toast(`'${openShelf}' 책장을 지웠습니다.`);
+      openShelf = null;
+      $("#shelfEditor").innerHTML = "";
+      await Promise.all([loadShelves(), loadStatus()]);
+    } catch (e) { toast(e.message, true); }
+  };
+  actions.appendChild(del);
+  card.appendChild(actions);
+  box.appendChild(card);
+
+  // ── 설명을 쓸 재료 ──
+  if (material.frequent_terms?.length) {
+    const hint = el("div", "card");
+    hint.appendChild(el("h2", null, "설명을 쓸 재료"));
+    hint.appendChild(el("div", "terms",
+      "자주 쓰는 용어: " + material.frequent_terms.slice(0, 20).join(", ")));
+    hint.appendChild(el("div", "src",
+      "Claude에게 맡기려면 대화창에서 “" + name + " 책장 설명 다시 써줘” 라고 하세요 " +
+      "(describe_collection → write_collection_readme)."));
+    box.appendChild(hint);
+  }
+
+  // ── 문서 목록 + 다른 책장으로 이동 ──
+  let docs = [];
+  try { docs = await api(`/api/documents?collection=${encodeURIComponent(name)}`); }
+  catch (e) { /* 방금 이름을 바꿨을 수 있다 */ }
+
+  const docCard = el("div", "card");
+  docCard.appendChild(el("h2", null, `문서 ${docs.length}건`));
+  if (!docs.length) {
+    docCard.appendChild(el("div", "empty", "문서가 없습니다."));
+  }
+  for (const doc of docs.slice(0, 100)) {
+    const row = el("div", "file");
+    row.appendChild(el("h3", null, doc.title || doc.path));
+    row.appendChild(el("div", "src", doc.path));
+
+    const move = el("div", "row");
+    const sel = el("select");
+    sel.appendChild(el("option", null, "다른 책장으로…"));
+    for (const c of state.collections) {
+      if (c.name === openShelf) continue;
+      const o = el("option", null, c.name);
+      o.value = c.name;
+      sel.appendChild(o);
+    }
+    const go = el("button", "act ghost", "이동");
+    go.onclick = async () => {
+      if (!sel.value) { toast("책장을 고르세요.", true); return; }
+      go.disabled = true;
+      try {
+        const r = await api("/api/file", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ document_id: doc.id, collection: sel.value }),
+        });
+        toast(`${r.from} → ${r.to}`);
+        await Promise.all([loadShelves(), loadStatus()]);
+      } catch (e) { toast(e.message, true); go.disabled = false; }
+    };
+    move.appendChild(sel);
+    move.appendChild(go);
+    row.appendChild(move);
+    docCard.appendChild(row);
+  }
+  if (docs.length > 100) {
+    docCard.appendChild(el("div", "src", `… 외 ${docs.length - 100}건`));
+  }
+  box.appendChild(docCard);
+
+  if (!keepScroll) box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+$("#newShelfBtn").onclick = async () => {
+  const name = prompt("새 책장(폴더) 이름");
+  if (!name || !name.trim()) return;
+  try {
+    const r = await api("/api/collection", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    toast(`'${r.created}' 책장을 만들었습니다.`);
+    openShelf = r.created;
+    await Promise.all([loadShelves(), loadStatus()]);
+  } catch (e) { toast(e.message, true); }
+};
+
 // ── 기록 ────────────────────────────────────────────────────
 async function loadMoves() {
   const box = $("#movesList");
@@ -491,7 +713,12 @@ async function loadMoves() {
 }
 
 // ── 탭 ──────────────────────────────────────────────────────
-const loaders = { search: loadStatus, inbox: loadInbox, moves: loadMoves };
+const loaders = {
+  search: loadStatus,
+  shelves: loadShelves,
+  inbox: loadInbox,
+  moves: loadMoves,
+};
 
 document.querySelectorAll("nav button").forEach(b => {
   b.onclick = () => {

@@ -15,11 +15,14 @@ import pytest
 from seojae.index import index_root, open_db
 from seojae.organize import (
     OrganizeError,
+    create_collection,
+    delete_collection_if_empty,
     describe_collection,
     file_document,
     inbox_count,
     list_inbox,
     list_moves,
+    rename_collection,
     undo_last,
     write_collection_readme,
 )
@@ -367,3 +370,118 @@ def test_readme_frontmatter_date_is_unquoted(shelf_db) -> None:
 
     text = (root / "업무규정" / "README.md").read_text(encoding="utf-8")
     assert "updated: '" not in text and 'updated: "' not in text
+
+
+# ── 책장 만들기·이름 바꾸기 ───────────────────────────────────────────────
+
+
+def test_create_collection(shelf_db) -> None:
+    root, conn = shelf_db
+    name = create_collection(conn, root, "개발가이드", "코딩 규약. 네이밍 질문에 사용.")
+
+    assert name == "개발가이드"
+    assert (root / "개발가이드").is_dir()
+    assert (root / "개발가이드" / "README.md").is_file()
+
+    info = next(c for c in list_collections(conn) if c.dirname == "개발가이드")
+    assert "네이밍" in info.description
+
+
+def test_create_collection_without_description(shelf_db) -> None:
+    root, conn = shelf_db
+    create_collection(conn, root, "메모함")
+    assert (root / "메모함").is_dir()
+    assert not (root / "메모함" / "README.md").exists()
+
+
+def test_create_collection_rejects_duplicate(shelf_db) -> None:
+    root, conn = shelf_db
+    with pytest.raises(OrganizeError):
+        create_collection(conn, root, "업무규정")
+
+
+@pytest.mark.parametrize("bad", ["..", "하위/폴더", "_inbox", ".숨김", "  "])
+def test_create_collection_rejects_unsafe(shelf_db, bad: str) -> None:
+    root, conn = shelf_db
+    with pytest.raises((OrganizeError, OutsideRootError)):
+        create_collection(conn, root, bad)
+
+
+def test_rename_collection(shelf_db) -> None:
+    root, conn = shelf_db
+    rename_collection(conn, root, "업무규정", "사규")
+
+    assert (root / "사규").is_dir()
+    assert not (root / "업무규정").exists()
+    assert "사규" in {c.dirname for c in list_collections(conn)}
+    assert "업무규정" not in {c.dirname for c in list_collections(conn)}
+
+
+def test_rename_keeps_index_without_reparsing(shelf_db) -> None:
+    """폴더만 바뀌었으니 다시 읽지 않는다. 경로만 고쳐도 검색이 유지돼야 한다."""
+    root, conn = shelf_db
+    before = len(list_documents(conn, collection="업무규정"))
+
+    rename_collection(conn, root, "업무규정", "사규")
+
+    docs = list_documents(conn, collection="사규")
+    assert len(docs) == before
+    assert all(d.path.startswith("사규/") for d in docs)
+
+    hits = search(conn, "연차 휴가", collection="사규")
+    assert hits
+    assert hits[0].source.startswith("사규/")
+
+
+def test_rename_rejects_existing_name(shelf_db) -> None:
+    root, conn = shelf_db
+    create_collection(conn, root, "메모함")
+    with pytest.raises(OrganizeError):
+        rename_collection(conn, root, "업무규정", "메모함")
+
+
+def test_undo_create_collection(shelf_db) -> None:
+    root, conn = shelf_db
+    create_collection(conn, root, "메모함")
+
+    undo_last(conn, root)
+    assert not (root / "메모함").exists()
+
+
+def test_undo_create_refuses_when_files_arrived(shelf_db) -> None:
+    """되돌리는 사이에 파일이 들어왔으면 지우지 않는다."""
+    root, conn = shelf_db
+    create_collection(conn, root, "메모함")
+    (root / "메모함" / "누군가의파일.md").write_text("# 남의 것\n", encoding="utf-8")
+
+    with pytest.raises(OrganizeError):
+        undo_last(conn, root)
+    assert (root / "메모함" / "누군가의파일.md").is_file()
+
+
+def test_undo_rename_collection(shelf_db) -> None:
+    root, conn = shelf_db
+    rename_collection(conn, root, "업무규정", "사규")
+
+    undo_last(conn, root)
+
+    assert (root / "업무규정").is_dir()
+    assert not (root / "사규").exists()
+    assert search(conn, "연차 휴가", collection="업무규정")
+
+
+def test_delete_empty_collection(shelf_db) -> None:
+    root, conn = shelf_db
+    create_collection(conn, root, "메모함", "임시 메모.")
+    delete_collection_if_empty(conn, root, "메모함")
+
+    assert not (root / "메모함").exists()
+    assert "메모함" not in {c.dirname for c in list_collections(conn)}
+
+
+def test_delete_collection_refuses_when_not_empty(shelf_db) -> None:
+    root, conn = shelf_db
+    with pytest.raises(OrganizeError) as e:
+        delete_collection_if_empty(conn, root, "업무규정")
+    assert "남아 있다" in str(e.value)
+    assert (root / "업무규정").is_dir()

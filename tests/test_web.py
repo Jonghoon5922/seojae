@@ -249,3 +249,72 @@ def test_reindex_endpoint(client) -> None:
     stats = c.post("/api/reindex").json()
     assert stats["indexed"] == 1
     assert c.get("/api/search", params={"q": "새 문서"}).json()["results"]
+
+
+# ── 책장 관리 ─────────────────────────────────────────────────────────────
+
+
+def test_create_collection_endpoint(client) -> None:
+    c, shelf, _ = client
+    res = c.post("/api/collection", json={"name": "개발가이드", "description": "코딩 규약."})
+
+    assert res.status_code == 200
+    assert res.json()["created"] == "개발가이드"
+    assert (shelf / "개발가이드" / "README.md").is_file()
+    assert "개발가이드" in {x["name"] for x in c.get("/api/status").json()["collections"]}
+
+
+def test_create_collection_rejects_duplicate(client) -> None:
+    c, _, _ = client
+    assert c.post("/api/collection", json={"name": "업무규정"}).status_code == 400
+
+
+def test_create_collection_rejects_path(client) -> None:
+    c, shelf, _ = client
+    assert c.post("/api/collection", json={"name": "../탈출"}).status_code == 400
+    assert not (shelf.parent / "탈출").exists()
+
+
+def test_rename_collection_endpoint(client) -> None:
+    c, shelf, _ = client
+    res = c.patch("/api/collection/업무규정", json={"name": "사규"})
+
+    assert res.status_code == 200
+    assert (shelf / "사규").is_dir()
+    assert not (shelf / "업무규정").exists()
+
+    # 이름만 바뀌고 색인은 유지된다
+    hits = c.get("/api/search", params={"q": "연차 휴가", "collection": "사규"}).json()
+    assert hits["results"]
+    assert hits["results"][0]["source"].startswith("사규/")
+
+
+def test_rename_collection_rejects_taken_name(client) -> None:
+    c, _, _ = client
+    c.post("/api/collection", json={"name": "메모함"})
+    assert c.patch("/api/collection/업무규정", json={"name": "메모함"}).status_code == 400
+
+
+def test_delete_empty_collection_endpoint(client) -> None:
+    c, shelf, _ = client
+    c.post("/api/collection", json={"name": "메모함"})
+
+    assert c.delete("/api/collection/메모함").status_code == 200
+    assert not (shelf / "메모함").exists()
+
+
+def test_delete_collection_refuses_when_not_empty(client) -> None:
+    c, shelf, _ = client
+    res = c.delete("/api/collection/업무규정")
+
+    assert res.status_code == 400
+    assert (shelf / "업무규정").is_dir()
+
+
+def test_undo_collection_rename(client) -> None:
+    c, shelf, _ = client
+    c.patch("/api/collection/업무규정", json={"name": "사규"})
+
+    assert c.post("/api/undo").status_code == 200
+    assert (shelf / "업무규정").is_dir()
+    assert not (shelf / "사규").exists()

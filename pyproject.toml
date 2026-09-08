@@ -36,6 +36,10 @@ dependencies = [
     "uvicorn>=0.30",
 ]
 
+[project.optional-dependencies]
+# 데스크톱 앱 창. MCP 서버로만 쓸 때는 필요 없어서 기본에서 뺀다.
+app = ["pywebview>=5.0"]
+
 [project.urls]
 Homepage = "https://github.com/Jonghoon5922/seojae"
 Repository = "https://github.com/Jonghoon5922/seojae"

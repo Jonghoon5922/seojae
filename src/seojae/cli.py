@@ -296,6 +296,33 @@ def serve(
     run_server(root_path, watch=not no_watch, on_change=on_change)
 
 
+@app.command(name="app")
+def app_cmd(
+    root: str = RootArg,
+    port: int = typer.Option(0, "--port", "-p", help="0이면 빈 포트를 자동으로 고른다"),
+    no_watch: bool = typer.Option(False, "--no-watch", help="파일 감시 없이"),
+    no_index: bool = typer.Option(False, "--no-index", help="시작 시 색인 건너뛰기"),
+) -> None:
+    """데스크톱 앱 창으로 연다. 브라우저 없이 자체 창을 띄운다."""
+    from .app import AppError
+    from .app import run as run_app
+
+    root_path, conn = _open(root)
+    conn.close()  # 앱이 자기 연결을 새로 연다
+
+    try:
+        run_app(
+            root_path,
+            port=port or None,
+            watch=not no_watch,
+            reindex=not no_index,
+            on_status=lambda m: console.print(f"[dim]{m}[/dim]"),
+        )
+    except AppError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(code=1)
+
+
 @app.command()
 def ui(
     root: str = RootArg,
