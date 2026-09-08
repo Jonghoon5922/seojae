@@ -30,7 +30,7 @@ Python 3.11+, uv, FastMCP, SQLite FTS5, kiwipiepy, pypdf, python-docx, watchdog,
 - [x] 1단계: 골격·파서·청킹·BM25 색인·`status`/`reindex` (576문서·19,640청크 실측 통과)
 - [x] 2단계: 검색 축 MCP 도구 4개 + instructions 주입 (stdio 실연결 검증 완료)
 - [x] 3단계: 파일 감시 증분 색인, `init` (생성·수정 1.3초, 삭제 0.2초 반영 실측)
-- [ ] 4단계: 인박스 + 정리 축 (`list_inbox`, `file_document`, `undo`, `describe_collection`, `write_collection_readme`)
+- [x] 4단계: 인박스 + 정리 축 (분류·되돌리기·책장 설명 작성, MCP 실연결 검증)
 - [ ] 5단계: 웹 UI (서재 화면 + 인박스 화면)
 - [ ] 6단계: 로컬 임베딩, `.mcpb`, 배포
 

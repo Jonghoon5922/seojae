@@ -18,7 +18,7 @@ Claude → search(query="예외 처리 규약", collection="개발가이드")
 문서는 **PC를 떠나지 않는다.** 네트워크 전송 없음, 외부 API 호출 없음, 계정 없음.
 
 > [!NOTE]
-> 개발 중이다. 6단계 중 2단계까지 동작한다. 아래 [진행 상태](#진행-상태) 참고.
+> 개발 중이다. 6단계 중 4단계까지 동작한다. 아래 [진행 상태](#진행-상태) 참고.
 
 ---
 
@@ -121,12 +121,22 @@ kiwipiepy로 형태소를 분석해 색인한다. **색인과 질의에 같은 �
 python-docx로 문단만 훑는 일반적인 구현은 이걸 통째로 놓친다.
 서재는 본문 요소를 문서 순서대로(문단·표 섞어서) 훑어 표까지 추출한다.
 
-### 4. 미분류 인박스 + AI 정리 (4단계 예정)
+### 4. 미분류 인박스 + AI 정리
 
 검색만 하는 게 아니라 **정리해주는** 도구다.
 `_inbox\`에 파일을 던져두고 "정리해줘"라고 하면 Claude가 내용을 읽고 책장에 꽂는다.
-책장 설명(`README.md`)도 Claude가 쓸 수 있다.
-파일 이동은 전부 로그가 남고 `undo`로 되돌릴 수 있다.
+책장 설명(`README.md`)도 Claude가 쓴다.
+
+```
+_inbox\20260907_회의록.md
+   ↓  list_inbox — 본문 발췌 + 고를 수 있는 책장 목록
+   ↓  Claude가 읽고 판단 (이 도구는 판단하지 않는다)
+   ↓  file_document(document_id, "업무규정")
+업무규정\20260907_회의록.md   → 곧바로 검색에 잡힌다
+```
+
+여기서도 원칙은 같다. **판단은 사용자의 Claude가, 실행은 로컬 도구가.**
+`list_inbox`는 분류를 제안하지 않는다. 읽을 재료와 선택지만 준다.
 
 그리고 **모델 다운로드가 0이다.** 설치하면 바로 동작한다.
 
@@ -283,7 +293,9 @@ PDF는 `p.7`, docx는 절 제목이 같은 자리에 들어간다.
 }
 ```
 
-세션을 새로 열면 도구 4개가 붙는다.
+세션을 새로 열면 도구 8개가 붙는다.
+
+**꺼내 읽기**
 
 | 도구 | 하는 일 |
 |---|---|
@@ -291,6 +303,15 @@ PDF는 `p.7`, docx는 절 제목이 같은 자리에 들어간다.
 | `list_documents` | 한 책장의 문서 목록 |
 | `search` | 검색 (출처·점수·재검색 힌트 포함) |
 | `get_document` | 문서 원문 (`section`으로 부분만) |
+
+**꽂아 넣기**
+
+| 도구 | 하는 일 |
+|---|---|
+| `list_inbox` | 미분류 파일 + 분류 판단용 발췌 + 고를 수 있는 책장 |
+| `file_document` | 파일을 책장으로 이동 (되돌릴 수 있게 기록) |
+| `describe_collection` | 책장 설명을 쓸 재료 (제목·헤딩·발췌·빈출어) |
+| `write_collection_readme` | 쓴 설명을 README 프론트매터로 저장 |
 
 서버가 뜰 때 **책장 목록과 설명이 instructions로 자동 주입된다.**
 Claude는 어떤 책장이 있는지 알고 시작한다.
@@ -306,10 +327,35 @@ seojae status    <root>          컬렉션별 문서 수·마지막 색인·실�
 seojae documents <root>          색인된 문서 목록
 seojae search    <root> <query>  검색
 seojae show      <root> <id>     문서 원문 보기
+seojae inbox     <root>          미분류 파일 목록 (Claude가 보는 것과 같은 내용)
+seojae moves     <root>          파일을 옮긴 기록
+seojae undo      <root>          마지막 이동·README 수정 되돌리기
 seojae serve     <root>          MCP(stdio) 서버 + 파일 감시
 ```
 
 `init`은 **이미 있는 파일을 절대 덮어쓰지 않는다.** 쓰던 폴더에 다시 실행해도 안전하다.
+
+---
+
+## 파일을 옮길 때의 규칙
+
+AI가 파일을 옮긴다는 건 겁나는 일이다. 그래서 규칙을 코드로 강제한다.
+
+| 규칙 | 어떻게 |
+|---|---|
+| 루트 밖으로 안 나간다 | 책장 이름에 경로·`..`·예약어 금지, 이동 직전 재확인 |
+| 아무것도 덮어쓰지 않는다 | 이름이 겹치면 `이름 (2).md`. README는 고치기 전에 사본을 남긴다 |
+| 전부 되돌릴 수 있다 | 모든 이동을 기록 → `seojae undo` |
+| 확장자를 안 바꾼다 | 확장자가 바뀌면 파서가 달라진다 |
+| 새 책장은 명시적으로만 | 없는 책장은 거부하고 **있는 책장을 알려준다.** 만들려면 플래그가 필요하다 |
+| 남의 파일은 안 건드린다 | undo로 폴더를 치울 때 그 사이 다른 파일이 들어왔으면 남긴다 |
+
+거부당하면 이렇게 돌아온다 — Claude가 다음에 뭘 해야 할지 알 수 있게.
+
+```
+'없는책장' 책장이 없다. 있는 책장: 개발가이드, 업무규정.
+새로 만들려면 create_collection=true로 다시 호출하라.
+```
 
 ---
 
@@ -374,7 +420,7 @@ _inbox\  ──┐
 - [x] **1단계** — 골격·파서·청킹·형태소 BM25 색인·CLI
 - [x] **2단계** — 검색 축 MCP 도구 4개 + instructions 주입
 - [x] **3단계** — 파일 감시 증분 색인, `init`
-- [ ] 4단계 — 인박스 + 정리 축 (`list_inbox`, `file_document`, `undo`, `describe_collection`, `write_collection_readme`)
+- [x] **4단계** — 인박스 + 정리 축 (분류·되돌리기·책장 설명 작성)
 - [ ] 5단계 — 웹 UI (서재 화면 + 인박스 화면)
 - [ ] 6단계 — 로컬 임베딩(옵션), `.mcpb` 번들, 패키지 배포
 
@@ -422,7 +468,7 @@ searchable in about a second, with no reindex command. Filesystem events are not
 directly: editors emit several per save (debounced), and on Windows a large file is still
 locked when its creation event arrives (retried).
 
-Status: stages 1–3 of 6 complete. See [SPEC.md](SPEC.md) (Korean) for design decisions.
+Status: stages 1–4 of 6 complete. See [SPEC.md](SPEC.md) (Korean) for design decisions.
 
 ---
 
