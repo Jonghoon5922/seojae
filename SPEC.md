@@ -150,8 +150,9 @@ _inbox\  ──┐
 
 ## 10. 테스트 데이터
 
-`C:\poc\internal-docs\workspace\docs\` 와 `templates\bxm-architecture.md` 를 `testdata\seojae\bxm-guide\` 로 복사해서 첫 컬렉션으로 쓴다.
-(고객 원본 소스 `asis\` 는 포함하지 않는다)
+실제 업무 문서 576건(md 281 + docx 294, 21MB)을 `testdata\seojae\bxm-guide\` 로 복사해서 첫 컬렉션으로 쓴다.
+표가 많은 한국어 설계서라 파서·검색 품질을 재기에 적합하다.
+복사 원본 경로는 로컬 환경마다 다르므로 여기에 적지 않는다. `testdata\` 는 git에 올리지 않는다.
 
 ## 11. 배경 (왜 이 제품인가)
 

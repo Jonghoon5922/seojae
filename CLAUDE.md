@@ -38,7 +38,7 @@ Python 3.11+, uv, FastMCP, SQLite FTS5, kiwipiepy, pypdf, python-docx, watchdog,
 
 ## 테스트 데이터
 
-`testdata\seojae\` 를 루트로 사용. 첫 컬렉션 `bxm-guide`는 `C:\poc\internal-docs\workspace\docs\` 와 `templates\bxm-architecture.md` 복사본. 고객 원본 소스(`asis\`)는 넣지 않는다. `testdata\`는 git에 커밋하지 않는다.
+`testdata\seojae\` 를 루트로 사용. 첫 컬렉션 `bxm-guide`는 로컬 업무 문서 576건의 복사본이다. 원본 경로는 이 문서에 적지 않는다. `testdata\` 는 git에 커밋하지 않는다.
 
 ## 새 세션 시작 문구
 
