@@ -19,6 +19,7 @@ from mcp.server.mcpserver import MCPServer
 from . import __version__
 from .index import open_db
 from .search import (
+    document_total,
     get_document,
     list_collections,
     list_documents,
@@ -136,11 +137,14 @@ def create_server(root: Path) -> MCPServer:
             )
             counts = term_document_counts(conn, query, collection)
             hint = search_hint(conn, query, hits, collection, counts=counts)
+            total_docs = document_total(conn, collection)
 
         return {
             "query": query,
             # 검색어별로 몇 개 문서에 나오는지. 0이면 이 서재가 쓰지 않는 말이다.
+            # document_count가 분모다 (269/576이면 흔한 말, 27/576이면 특정적인 말).
             "term_document_counts": counts,
+            "document_count": total_docs,
             "results": [
                 {
                     "text": h.text,

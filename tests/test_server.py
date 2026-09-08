@@ -11,6 +11,7 @@ import pytest
 from seojae.index import index_root, open_db
 from seojae.search import (
     collection_terms,
+    document_total,
     search,
     search_hint,
     term_document_counts,
@@ -77,15 +78,26 @@ def test_search_tool_returns_sources(indexed: Path) -> None:
     assert top["document_id"] > 0
 
 
-def test_search_tool_hint_on_vocabulary_mismatch(indexed: Path) -> None:
+def test_search_tool_hint_when_nothing_matches(indexed: Path) -> None:
     server = create_server(indexed)
     payload = _payload(
-        run(server.call_tool("search", {"query": "리프레시 데이 정책", "collection": "업무규정"}))
+        run(server.call_tool("search", {"query": "리프레시 정책", "collection": "업무규정"}))
     )
-    assert payload["hint"], "색인에 없는 말로 물으면 재검색 힌트가 와야 한다"
+    assert payload["hint"], "아무 검색어도 색인에 없으면 재검색 힌트가 와야 한다"
     assert "쓰지 않는 말" in payload["hint"]
     assert "실제로 쓰는 용어" in payload["hint"]
     assert payload["term_document_counts"]["리프레시"] == 0
+
+
+def test_no_hint_when_search_succeeded_despite_unknown_word(indexed: Path) -> None:
+    """'며칠' 같은 의문사는 문서에 없다. 그것만으로 잔소리하면 안 된다."""
+    server = create_server(indexed)
+    payload = _payload(
+        run(server.call_tool("search", {"query": "연차 휴가 며칠", "collection": "업무규정"}))
+    )
+    assert payload["results"], "결과는 나와야 한다"
+    assert payload["term_document_counts"]["며칠"] == 0
+    assert payload["hint"] == "", "결과가 멀쩡하면 힌트를 붙이지 않는다"
 
 
 def test_get_document_tool_section(indexed: Path) -> None:
@@ -121,11 +133,30 @@ def test_term_document_counts(indexed: Path) -> None:
     conn.close()
 
 
-def test_common_term_rule_needs_enough_documents(indexed: Path) -> None:
-    """문서가 몇 개 없을 때는 흔한 말 규칙을 적용하지 않는다 (3건 중 1건이 이미 33%)."""
+def test_no_hint_for_common_domain_words(indexed: Path) -> None:
+    """흔하다고 쓸모없는 것이 아니다. 문서 집합이 동질적이면 도메인 용어가 원래 흔하다."""
     conn = open_db(indexed)
-    hits = search(conn, "연차")
-    assert search_hint(conn, "연차", hits, collection="업무규정") == ""
+    hits = search(conn, "휴가")
+    assert hits
+    assert search_hint(conn, "휴가", hits, collection="업무규정") == ""
+    conn.close()
+
+
+def test_hint_when_most_content_words_absent(indexed: Path) -> None:
+    """내용어 절반 이상이 색인에 없으면 질의가 이 서재와 겉돈다."""
+    conn = open_db(indexed)
+    query = "블록체인 합의 알고리즘"
+    hits = search(conn, query, collection="업무규정")
+    hint = search_hint(conn, query, hits, collection="업무규정")
+    assert hint
+    assert "블록체인" in hint
+    conn.close()
+
+
+def test_document_total(indexed: Path) -> None:
+    conn = open_db(indexed)
+    assert document_total(conn, "업무규정") == 3
+    assert document_total(conn) == 3  # 인박스는 세지 않는다
     conn.close()
 
 
