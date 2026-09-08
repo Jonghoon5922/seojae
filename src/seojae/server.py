@@ -12,7 +12,7 @@ from __future__ import annotations
 import sqlite3
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from mcp.server.mcpserver import MCPServer
 
@@ -65,10 +65,20 @@ def build_instructions(conn: sqlite3.Connection, root: Path) -> str:
     return "\n".join(lines)
 
 
-def create_server(root: Path) -> MCPServer:
-    """루트 하나에 묶인 MCP 서버를 만든다."""
-    conn = open_db(root, check_same_thread=False)
-    lock = threading.Lock()
+def create_server(
+    root: Path,
+    conn: sqlite3.Connection | None = None,
+    lock: threading.Lock | None = None,
+) -> MCPServer:
+    """루트 하나에 묶인 MCP 서버를 만든다.
+
+    conn·lock을 넘기면 파일 감시자와 같은 연결을 공유한다.
+    그래야 방금 들어온 파일을 검색이 곧바로 본다.
+    """
+    if conn is None:
+        conn = open_db(root, check_same_thread=False)
+    if lock is None:
+        lock = threading.Lock()
 
     server = MCPServer(
         name="seojae",
@@ -202,6 +212,26 @@ def create_server(root: Path) -> MCPServer:
     return server
 
 
-def serve(root: Path) -> None:
-    """stdio MCP 서버를 띄운다."""
-    create_server(root).run("stdio")
+def serve(
+    root: Path,
+    watch: bool = True,
+    on_change: Callable[[str, str], None] | None = None,
+) -> None:
+    """stdio MCP 서버를 띄운다. watch=True면 파일 감시도 함께 돈다."""
+    conn = open_db(root, check_same_thread=False)
+    lock = threading.Lock()
+    server = create_server(root, conn=conn, lock=lock)
+
+    watcher = None
+    if watch:
+        from .watcher import ShelfWatcher
+
+        watcher = ShelfWatcher(root, conn, lock, on_change=on_change)
+        watcher.start()
+
+    try:
+        server.run("stdio")
+    finally:
+        if watcher is not None:
+            watcher.stop()
+        conn.close()

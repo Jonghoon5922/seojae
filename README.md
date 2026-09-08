@@ -300,13 +300,38 @@ Claude는 어떤 책장이 있는지 알고 시작한다.
 ## CLI
 
 ```
+seojae init      <root>          서재 골격 생성 (인박스·예시 책장·README 틀)
 seojae reindex   <root>          루트 전체 색인 (변경분만)
 seojae status    <root>          컬렉션별 문서 수·마지막 색인·실패 파일
 seojae documents <root>          색인된 문서 목록
 seojae search    <root> <query>  검색
 seojae show      <root> <id>     문서 원문 보기
-seojae serve     <root>          MCP(stdio) 서버
+seojae serve     <root>          MCP(stdio) 서버 + 파일 감시
 ```
+
+`init`은 **이미 있는 파일을 절대 덮어쓰지 않는다.** 쓰던 폴더에 다시 실행해도 안전하다.
+
+---
+
+## 폴더에 넣으면 끝
+
+`serve`가 떠 있는 동안에는 재색인 명령을 칠 일이 없다. 파일을 넣거나 고치거나 지우면
+알아서 따라온다.
+
+| 동작 | 검색에 반영되기까지 |
+|---|---|
+| 파일 생성 | 1.3초 |
+| 파일 수정 | 1.3초 |
+| 파일 삭제 | 0.2초 |
+
+파일 시스템 이벤트를 그대로 믿으면 안 되는 경우가 둘 있어서, 그만큼만 기다린다.
+
+- **에디터는 저장 한 번에 이벤트를 여러 개 뱉는다** (쓰기 → 임시파일 → 이름 변경 …).
+  마지막 이벤트 이후 1초 잠잠해지면 그때 한 번만 처리한다
+- **복사가 끝나기 전에 이벤트가 먼저 온다.** 윈도우에서 큰 파일을 복사하면 생성 이벤트
+  시점에 파일이 아직 잠겨 있다. 실패하면 0.5 / 1.5 / 3초 뒤 다시 시도한다
+
+삭제는 기다리지 않는다. 지운 파일이 검색 결과에 남아 있는 쪽이 더 나쁘다.
 
 ---
 
@@ -348,7 +373,7 @@ _inbox\  ──┐
 - [x] 스펙 확정 ([SPEC.md](SPEC.md))
 - [x] **1단계** — 골격·파서·청킹·형태소 BM25 색인·CLI
 - [x] **2단계** — 검색 축 MCP 도구 4개 + instructions 주입
-- [ ] 3단계 — 파일 감시 증분 색인, `init`
+- [x] **3단계** — 파일 감시 증분 색인, `init`
 - [ ] 4단계 — 인박스 + 정리 축 (`list_inbox`, `file_document`, `undo`, `describe_collection`, `write_collection_readme`)
 - [ ] 5단계 — 웹 UI (서재 화면 + 인박스 화면)
 - [ ] 6단계 — 로컬 임베딩(옵션), `.mcpb` 번들, 패키지 배포
@@ -360,7 +385,7 @@ _inbox\  ──┐
 ## 스택
 
 Python 3.11+ · [uv](https://docs.astral.sh/uv/) · MCP Python SDK · SQLite FTS5 ·
-[kiwipiepy](https://github.com/bab2min/kiwipiepy) · pypdf · python-docx
+[kiwipiepy](https://github.com/bab2min/kiwipiepy) · pypdf · python-docx · watchdog
 
 ```bash
 uv run pytest
@@ -392,7 +417,12 @@ Instead of guessing whether a search failed, `search` always returns how many do
 each query term appears in — so the model can tell "not in this library" from
 "too common to discriminate" and re-query in the library's own vocabulary.
 
-Status: stages 1–2 of 6 complete. See [SPEC.md](SPEC.md) (Korean) for design decisions.
+A watcher keeps the index current while the server runs — drop a file in and it is
+searchable in about a second, with no reindex command. Filesystem events are not trusted
+directly: editors emit several per save (debounced), and on Windows a large file is still
+locked when its creation event arrives (retried).
+
+Status: stages 1–3 of 6 complete. See [SPEC.md](SPEC.md) (Korean) for design decisions.
 
 ---
 

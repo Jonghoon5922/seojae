@@ -20,6 +20,7 @@ from .collections import CollectionInfo, load_collection
 from .parsers import ParseError, parse_file
 from .paths import (
     INBOX_DIRNAME,
+    SUPPORTED_EXTS,
     collection_dirs,
     data_dir,
     db_path,
@@ -299,6 +300,79 @@ def _index_file(
 
     stats.indexed += 1
     stats.chunks += len(chunks)
+
+
+def collection_of(root: Path, path: Path) -> tuple[str, bool]:
+    """파일이 어느 책장에 속하는지. (컬렉션명, 인박스인가)
+
+    루트 직속 파일과 _inbox\\ 아래는 전부 미분류로 본다 (SPEC 3절).
+    """
+    parts = Path(rel(root, path)).parts
+    if len(parts) == 1 or parts[0] == INBOX_DIRNAME:
+        return INBOX_DIRNAME, True
+    return parts[0], False
+
+
+def ensure_collection(root: Path, conn: sqlite3.Connection, dirname: str) -> None:
+    """컬렉션 행을 최신 README 내용으로 맞춘다."""
+    if dirname == INBOX_DIRNAME:
+        _upsert_collection(
+            conn,
+            CollectionInfo(
+                dirname=INBOX_DIRNAME,
+                name="미분류",
+                description="아직 어느 책장에도 꽂히지 않은 파일. list_inbox로 확인하고 분류한다.",
+            ),
+        )
+        return
+
+    directory = root / dirname
+    if directory.is_dir():
+        _upsert_collection(conn, load_collection(directory, root))
+
+
+def index_one(
+    root: Path,
+    conn: sqlite3.Connection,
+    path: Path,
+    force: bool = False,
+    commit: bool = True,
+) -> IndexStats:
+    """파일 하나만 색인한다. 파일 감시가 쓰는 진입점이다."""
+    stats = IndexStats()
+    if not path.is_file() or path.suffix.lower() not in SUPPORTED_EXTS:
+        return stats
+
+    collection, is_inbox = collection_of(root, path)
+    ensure_collection(root, conn, collection)
+    _index_file(conn, root, path, collection, is_inbox, stats, force)
+
+    # README가 바뀌면 그 책장의 설명(=Claude의 라우팅 근거)도 따라 바뀐다
+    if path.name.lower().startswith("readme.") and not is_inbox:
+        ensure_collection(root, conn, collection)
+
+    if commit:
+        conn.commit()
+    return stats
+
+
+def forget_one(
+    root: Path, conn: sqlite3.Connection, path: Path, commit: bool = True
+) -> bool:
+    """지워진 파일을 색인에서 뺀다. 뺐으면 True."""
+    try:
+        relpath = Path(path).resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return False
+
+    row = conn.execute("SELECT id FROM documents WHERE path = ?", (relpath,)).fetchone()
+    if row is None:
+        return False
+
+    _delete_document(conn, row["id"])
+    if commit:
+        conn.commit()
+    return True
 
 
 def index_root(

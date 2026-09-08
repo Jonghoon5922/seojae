@@ -13,7 +13,7 @@ from rich.table import Table
 
 from . import __version__
 from .index import index_root, last_indexed_at, open_db
-from .paths import resolve_root
+from .paths import INBOX_DIRNAME, resolve_root
 from .search import failed_documents, get_document, list_collections, list_documents, search
 
 app = typer.Typer(
@@ -181,9 +181,79 @@ def search_cmd(
 
 
 @app.command()
+def init(
+    root: str = typer.Argument(..., help="만들 서재 루트 폴더"),
+) -> None:
+    """서재 골격을 만든다. 인박스와 예시 책장, README 틀."""
+    root_path = Path(root).expanduser().resolve()
+    if root_path.exists() and not root_path.is_dir():
+        console.print(f"[red]폴더가 아니다: {root_path}[/red]")
+        raise typer.Exit(code=1)
+
+    created: list[str] = []
+    skipped: list[str] = []
+
+    def make_dir(path: Path) -> None:
+        if path.exists():
+            skipped.append(f"{path.relative_to(root_path.parent)}\\")
+        else:
+            path.mkdir(parents=True)
+            created.append(f"{path.relative_to(root_path.parent)}\\")
+
+    def make_file(path: Path, body: str) -> None:
+        rel_name = str(path.relative_to(root_path.parent))
+        if path.exists():
+            skipped.append(rel_name)  # 있는 파일은 절대 덮어쓰지 않는다
+            return
+        path.write_text(body, encoding="utf-8")
+        created.append(rel_name)
+
+    make_dir(root_path)
+    make_dir(root_path / INBOX_DIRNAME)
+    make_file(
+        root_path / INBOX_DIRNAME / "여기에-던져두세요.txt",
+        "분류하기 전 파일을 이 폴더에 넣어두면 된다.\n"
+        "검색 결과에는 기본으로 나오지 않는다.\n"
+        "나중에 Claude에게 '인박스 정리해줘'라고 하면 알맞은 책장으로 옮겨준다.\n",
+    )
+
+    example = root_path / "예시책장"
+    make_dir(example)
+    make_file(
+        example / "README.md",
+        "---\n"
+        "name: 예시책장\n"
+        "description: 이 책장이 어떤 질문에 쓰이는지 한두 문장으로 적는다. "
+        "이 문장이 Claude가 책장을 고르는 근거가 된다.\n"
+        "tags: [예시]\n"
+        "---\n\n"
+        "# 예시책장\n\n"
+        "폴더 하나가 책장 하나다. 이 폴더에 md, txt, pdf, docx 파일을 넣으면 색인된다.\n"
+        "하위 폴더를 만들어도 같은 책장으로 함께 색인된다.\n",
+    )
+
+    headline = "서재를 만들었다" if created else "이미 서재가 있다. 그대로 둔다"
+    console.print(f"[bold]{headline}:[/bold] {root_path}\n")
+    for name in created:
+        console.print(f"  [green]+[/green] {name}", highlight=False)
+    for name in skipped:
+        console.print(f"  [dim]· {name} (이미 있어 건드리지 않음)[/dim]", highlight=False)
+
+    console.print("\n[bold]다음 순서[/bold]")
+    console.print("  1. 폴더를 만들고 문서를 넣는다 (폴더 하나 = 책장 하나)")
+    console.print("  2. 각 폴더에 README.md를 두고 description을 적는다")
+    console.print(f"  3. [cyan]seojae reindex {root}[/cyan]")
+    console.print(f"  4. [cyan]seojae status {root}[/cyan] 로 확인")
+    console.print(
+        "\n[dim]serve로 띄워두면 파일을 넣거나 고칠 때 알아서 다시 색인된다.[/dim]"
+    )
+
+
+@app.command()
 def serve(
     root: str = RootArg,
     skip_index: bool = typer.Option(False, "--skip-index", help="색인을 건너뛰고 바로 띄운다"),
+    no_watch: bool = typer.Option(False, "--no-watch", help="파일 감시 없이 띄운다"),
 ) -> None:
     """색인 후 MCP(stdio) 서버를 띄운다. Claude Code가 이 명령을 실행한다."""
     # stdout은 MCP 프로토콜 채널이다. 사람에게 보여줄 것은 전부 stderr로 보낸다.
@@ -213,8 +283,12 @@ def serve(
 
     from .server import serve as run_server
 
-    err.print(f"[dim]MCP 서버 시작 (stdio) — 루트: {root_path}[/dim]")
-    run_server(root_path)
+    def on_change(kind: str, detail: str) -> None:
+        err.print(f"[dim]{kind}: {detail}[/dim]", highlight=False)
+
+    watching = "" if no_watch else " + 파일 감시"
+    err.print(f"[dim]MCP 서버 시작 (stdio){watching} — 루트: {root_path}[/dim]")
+    run_server(root_path, watch=not no_watch, on_change=on_change)
 
 
 @app.command()
