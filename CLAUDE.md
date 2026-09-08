@@ -33,7 +33,8 @@ Python 3.11+, uv, FastMCP, SQLite FTS5, kiwipiepy, pypdf, python-docx, watchdog,
 - [x] 4단계: 인박스 + 정리 축 (분류·되돌리기·책장 설명 작성, MCP 실연결 검증)
 - [x] 5단계: 웹 UI (검색·문서보기·인박스·기록, 브라우저 실동작 확인)
 - [x] 6단계 배포: PyPI `seojae-mcp` 공개 (uvx 설치 확인)
-- [ ] 6단계 나머지: `.mcpb` 번들, 로컬 임베딩
+- [x] 6단계 `.mcpb` 번들 (binary+uvx, 6KB, 실행 경로 검증)
+- [ ] 6단계 나머지: 로컬 임베딩 (선택)
 
 단계를 끝내면 위 체크박스를 갱신한다.
 

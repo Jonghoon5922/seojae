@@ -1,0 +1,11 @@
+# MCPB 번들이 쓰는 uv 프로젝트.
+# 서재 본체는 PyPI에서 받는다. 이 번들에는 코드가 들어있지 않아 100KB도 안 된다.
+[project]
+name = "seojae-bundle"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["seojae-mcp>=0.1.0"]
+
+[tool.uv]
+# 이 폴더 자체는 패키지가 아니다. 빌드하지 않는다.
+package = false

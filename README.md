@@ -22,7 +22,7 @@ Claude → search(query="예외 처리 규약", collection="개발가이드")
 문서는 **PC를 떠나지 않는다.** 네트워크 전송 없음, 외부 API 호출 없음, 계정 없음.
 
 > [!NOTE]
-> 5단계까지 동작하고 PyPI에 배포돼 있다. 아래 [진행 상태](#진행-상태) 참고.
+> 5단계까지 동작한다. [PyPI](https://pypi.org/project/seojae-mcp/)에 배포돼 있고 Claude Desktop용 `.mcpb` 번들도 있다.
 
 ---
 
@@ -289,7 +289,16 @@ uvx seojae-mcp search 내서재 "연차 휴가 며칠" -k 2
 출처가 파일 경로에서 끝나지 않고 **헤딩 경로**(`취업규칙 > 연차 유급휴가`)까지 붙는다.
 PDF는 `p.7`, docx는 절 제목이 같은 자리에 들어간다.
 
-### Claude에 연결
+### Claude Desktop — 더블클릭 설치
+
+[Releases](https://github.com/Jonghoon5922/seojae/releases)에서 `seojae-0.1.0.mcpb`를 받아
+**더블클릭**하면 설치 화면이 뜬다. 거기서 서재로 쓸 폴더를 고르면 끝이다.
+
+> uv가 미리 깔려 있어야 한다 (`winget install --id astral-sh.uv` 또는 `brew install uv`).
+> 서재 본체는 첫 실행 때 자동으로 받는다.
+> macOS는 GUI 앱이 셸 PATH를 물려받지 않으므로 `brew`로 설치하는 편이 안전하다.
+
+### Claude Code — 설정 세 줄
 
 `.mcp.json`(Claude Code) 또는 Claude Desktop 설정에 이 세 줄을 넣는다.
 **미리 설치할 것도, 서버를 띄워둘 것도 없다.** Claude가 필요할 때 실행하고 끝나면 정리한다.
@@ -464,7 +473,7 @@ _inbox\  ──┐
 - [x] **4단계** — 인박스 + 정리 축 (분류·되돌리기·책장 설명 작성)
 - [x] **5단계** — 웹 UI (검색 근거 재현 + 인박스 정리)
 - [x] **패키지 배포** — [PyPI `seojae-mcp`](https://pypi.org/project/seojae-mcp/)
-- [ ] `.mcpb` 번들 (Claude Desktop 더블클릭 설치)
+- [x] **`.mcpb` 번들** — Claude Desktop 더블클릭 설치
 - [ ] 로컬 임베딩 (옵션)
 
 설계 결정과 그 근거는 전부 [SPEC.md](SPEC.md)에 있다.
