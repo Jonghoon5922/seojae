@@ -9,11 +9,22 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterator
 
+from .parsers import SUPPORTED_EXTS  # noqa: F401  (등록기가 유일한 출처다)
+
 INBOX_DIRNAME = "_inbox"
 DATA_DIRNAME = ".seojae"
 DB_FILENAME = "index.db"
 
-SUPPORTED_EXTS = {".md", ".markdown", ".txt", ".pdf", ".docx"}
+# 소스 폴더를 통째로 넣으면 색인이 터진다. 이름만 보고 통째로 건너뛴다.
+SKIP_DIRNAMES = frozenset(
+    {
+        "node_modules", "bower_components", "vendor",
+        "venv", ".venv", "env", "__pycache__", ".mypy_cache", ".pytest_cache",
+        "target", "build", "dist", "out", "bin", "obj",
+        ".gradle", ".idea", ".vscode", ".terraform",
+        "coverage", ".next", ".nuxt", ".svelte-kit",
+    }
+)
 
 # 컬렉션으로 취급하지 않는 루트 직속 폴더
 RESERVED_DIRNAMES = {INBOX_DIRNAME, DATA_DIRNAME}
@@ -91,6 +102,8 @@ def walk_files(base: Path, root: Path) -> Iterator[Path]:
         if p.is_symlink() and not is_inside(root, p):
             continue
         if p.is_dir():
+            if p.name in SKIP_DIRNAMES:
+                continue  # node_modules, target, .venv …
             yield from walk_files(p, root)
         elif p.suffix.lower() in SUPPORTED_EXTS:
             yield p

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .base import Block, ParsedDoc, ParseError
+from .base import Block, ParsedDoc, ParseError, register
 
 _HEADING_STYLES = ("heading", "제목", "title")
 
@@ -35,6 +35,7 @@ def _render_table(table) -> str:
     return "\n".join(lines)
 
 
+@register(".docx", label="Word 문서")
 def parse_docx(path: Path) -> ParsedDoc:
     try:
         from docx import Document

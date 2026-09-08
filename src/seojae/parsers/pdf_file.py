@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .base import Block, ParsedDoc, ParseError
+from .base import Block, ParsedDoc, ParseError, register
 
 
+@register(".pdf", label="PDF")
 def parse_pdf(path: Path) -> ParsedDoc:
     try:
         from pypdf import PdfReader

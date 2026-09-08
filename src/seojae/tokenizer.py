@@ -63,14 +63,42 @@ def tokenize(text: str) -> list[str]:
     except Exception:
         return _fallback_tokens(text)
 
-    # 영문·숫자 원형도 함께 넣는다. "MNz310Bean001" 같은 식별자를 그대로 찾을 수 있게.
+    # 영문·숫자 원형과 그 조각을 함께 넣는다.
+    # 원형: "MNz310Bean001" 을 그대로 찾을 수 있게
+    # 조각: "getUserName" 을 "user name" 으로도 찾을 수 있게
+    seen = set(tokens)
     for word in _WORD_RE.findall(text):
-        if any(c.isascii() and c.isalnum() for c in word):
-            lowered = word.lower()
-            if lowered not in tokens:
-                tokens.append(lowered)
+        if not any(c.isascii() and c.isalnum() for c in word):
+            continue
+        for piece in _identifier_tokens(word):
+            if piece not in seen:
+                seen.add(piece)
+                tokens.append(piece)
 
     return tokens
+
+
+# camelCase / PascalCase / snake_case / kebab-case 를 쪼갠다.
+# 연속 대문자는 한 덩어리로 둔다 (HTTPServer → http, server)
+_IDENT_PARTS = re.compile(r"[A-Z]+(?![a-z])|[A-Z][a-z0-9]*|[a-z0-9]+")
+
+# 코드에 지천으로 깔려 검색에 도움이 안 되는 조각
+_IDENT_STOP = {"get", "set", "is", "has", "the", "a", "an", "of", "to", "in", "on"}
+
+
+def _identifier_tokens(word: str) -> list[str]:
+    """식별자 하나에서 원형과 조각을 뽑는다."""
+    lowered = word.lower()
+    out = [lowered]
+
+    parts = [p.lower() for p in _IDENT_PARTS.findall(word)]
+    if len(parts) < 2:  # 쪼갤 것이 없다
+        return out
+
+    for part in parts:
+        if len(part) > 1 and part not in _IDENT_STOP and part != lowered:
+            out.append(part)
+    return out
 
 
 def tokens_to_fts(tokens: list[str]) -> str:

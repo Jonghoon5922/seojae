@@ -32,6 +32,8 @@ dependencies = [
     "rich>=13.9",
     "watchdog>=6.0",
     "fastapi>=0.115",
+    "openpyxl>=3.1",
+    "python-pptx>=1.0",
     # `seojae ui`가 직접 부른다. mcp를 통해 딸려오지만 우리 코드가 쓰므로 명시한다.
     "uvicorn>=0.30",
 ]

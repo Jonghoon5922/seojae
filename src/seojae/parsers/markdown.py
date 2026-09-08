@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .base import Block, ParsedDoc, ParseError
+from .base import Block, ParsedDoc, ParseError, register
 from .plain import read_text
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*#*$")
@@ -20,6 +20,7 @@ def strip_frontmatter(text: str) -> tuple[str, str]:
     return m.group(1), text[m.end():]
 
 
+@register(".md", ".markdown", ".mdx", label="마크다운")
 def parse_markdown(path: Path) -> ParsedDoc:
     try:
         raw = read_text(path)
