@@ -29,6 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from seojae.bootstrap import PLACEHOLDER_DESCRIPTION  # noqa: E402
 from seojae.index import open_db  # noqa: E402
 from seojae.search import (  # noqa: E402
     collection_terms,
@@ -128,6 +129,17 @@ def suggest(root: Path) -> str:
         if terms:
             out += [f"  # 이 책장이 쓰는 말: {', '.join(terms[:15])}"]
             out += ["  # 질문은 이 어휘 안에서 써야 찾힌다."]
+
+        # 안 고친 견본을 진짜 설명으로 읽으면 "이 책장이 어떤 질문에 쓰이는지
+        # 한두 문장으로 적습니다" 같은 것이 질문으로 나온다. 실제로 그랬다.
+        if shelf.description.strip() == PLACEHOLDER_DESCRIPTION:
+            무설명.append(shelf.dirname)
+            out += [
+                "  #",
+                "  # 설명이 아직 견본 그대로다. 첫 실행에 넣어둔 문구다.",
+                "  # 고치기 전에는 여기서 뽑을 주제가 없다.",
+            ]
+            continue
 
         if not found:
             무설명.append(shelf.dirname)

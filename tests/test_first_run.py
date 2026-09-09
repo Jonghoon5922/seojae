@@ -125,3 +125,28 @@ class Test서재_폴더_열기:
         c, _, _ = 빈서재
         monkeypatch.setattr("seojae.web._open_in_file_manager", 실패)
         assert "error" in c.post("/api/open-root").json()
+
+
+class Test안_고친_견본:
+    """첫 실행에 넣어두는 설명 견본을 진짜 설명으로 착각하면 안 된다.
+
+    시나리오 생성기가 이 문구를 주제로 쪼개서 "이 책장이 어떤 질문에 쓰이는지
+    한두 문장으로 적습니다"를 질문으로 뱉은 적이 있다.
+    """
+
+    def test_견본이_그대로_들어간다(self, tmp_path):
+        from seojae.bootstrap import EXAMPLE_SHELF, PLACEHOLDER_DESCRIPTION, make_skeleton
+
+        make_skeleton(tmp_path)
+        readme = (tmp_path / EXAMPLE_SHELF / "README.md").read_text(encoding="utf-8")
+        assert PLACEHOLDER_DESCRIPTION in readme
+
+    def test_색인된_설명과_상수가_일치한다(self, 빈서재):
+        """둘이 어긋나면 '아직 안 고쳤다'는 판정이 조용히 안 먹는다."""
+        from seojae.bootstrap import PLACEHOLDER_DESCRIPTION
+        from seojae.search import list_collections
+
+        _, _, conn = 빈서재
+        example = [c for c in list_collections(conn, include_inbox=False)]
+        assert example, "예시책장이 색인돼 있어야 한다"
+        assert example[0].description.strip() == PLACEHOLDER_DESCRIPTION

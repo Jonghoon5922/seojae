@@ -24,11 +24,15 @@ _INBOX_GUIDE = """\
 Claude에게 '미분류 정리해줘'라고 하면 알맞은 책장으로 옮겨줍니다.
 """
 
-_EXAMPLE_README = """\
+#: 첫 실행에 넣어두는 설명 견본. 사용자가 아직 안 고쳤는지 알아보려고 상수로 둔다.
+#: 안 고친 견본을 진짜 설명으로 착각하면 엉뚱한 일이 생긴다 — 시나리오 생성기가
+#: 이 문구를 주제로 쪼개 헛소리를 만든 적이 있었다.
+PLACEHOLDER_DESCRIPTION = "이 책장이 어떤 질문에 쓰이는지 한두 문장으로 적습니다. 이 문장이 Claude가 책장을 고르는 근거가 됩니다."
+
+_EXAMPLE_README = f"""\
 ---
 name: 예시책장
-description: 이 책장이 어떤 질문에 쓰이는지 한두 문장으로 적습니다. \
-이 문장이 Claude가 책장을 고르는 근거가 됩니다.
+description: {PLACEHOLDER_DESCRIPTION}
 ---
 
 # 예시책장
