@@ -1,8 +1,17 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller 빌드 설정.
 
-`seojae app` 을 파이썬과 의존성까지 통째로 묶어 하나의 실행 파일로 만든다.
-uv도 파이썬도 없는 사람이 받아서 바로 쓸 수 있게 하는 것이 목적이다.
+파이썬과 의존성까지 통째로 묶는다. uv도 파이썬도 없는 사람이 받아서 바로 쓸 수 있게
+하는 것이 목적이다.
+
+**실행 파일이 둘이다.** 파이썬이 `python.exe` 와 `pythonw.exe` 로 나뉜 것과 같은 이유다.
+
+    서재.exe        창 모드. 아이콘을 더블클릭하면 앱 창이 뜬다
+    seojae-mcp.exe  콘솔 모드. Claude Desktop이 stdio로 대화한다
+
+창 모드 실행 파일에는 표준 입출력이 없어서 MCP 프로토콜이 오갈 통로가 없다. 그래서
+하나로는 안 된다. 무거운 자원(`_internal`, 104MB 모델 포함)은 COLLECT 하나에 모아
+둘이 공유하므로 늘어나는 것은 파이썬 코드 묶음뿐이다.
 
 빌드:
     .venv\\Scripts\\pyinstaller.exe installer\\seojae.spec --noconfirm
@@ -56,27 +65,39 @@ hiddenimports += [
     "uvicorn.protocols.websockets.auto",
     "uvicorn.lifespan.on",
     "webview.platforms.winforms",
+    # 두 진입점이 각각 끌어오는 것. 양쪽 분석 결과를 같게 맞춘다
+    "seojae.cli",
+    "seojae.server",
+    "seojae.app",
+    "seojae.bootstrap",
+    "seojae.desktop_config",
 ]
 
-analysis = Analysis(
-    [str(SPEC_DIR / "launcher.py")],
-    pathex=[str(PROJECT / "src")],
-    binaries=binaries,
-    datas=datas,
-    hiddenimports=hiddenimports,
-    hookspath=[],
-    excludes=[
-        # 개발 도구는 빼서 크기를 줄인다
-        "tkinter", "pytest", "IPython", "matplotlib", "PIL.ImageQt",
-    ],
-    noarchive=False,
-)
+def analyze(entry):
+    """두 진입점을 같은 조건으로 분석한다."""
+    return Analysis(
+        [str(SPEC_DIR / entry)],
+        pathex=[str(PROJECT / "src")],
+        binaries=binaries,
+        datas=datas,
+        hiddenimports=hiddenimports,
+        hookspath=[],
+        excludes=[
+            # 개발 도구는 빼서 크기를 줄인다
+            "tkinter", "pytest", "IPython", "matplotlib", "PIL.ImageQt",
+        ],
+        noarchive=False,
+    )
 
-pyz = PYZ(analysis.pure)
 
-exe = EXE(
-    pyz,
-    analysis.scripts,
+app_analysis = analyze("launcher.py")
+mcp_analysis = analyze("mcp_launcher.py")
+
+ICON = str(PROJECT / "installer" / "seojae.ico")
+
+app_exe = EXE(
+    PYZ(app_analysis.pure),
+    app_analysis.scripts,
     [],
     exclude_binaries=True,
     name="서재",
@@ -84,13 +105,28 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,  # 검은 콘솔 창이 뜨지 않게
-    icon=str(PROJECT / "installer" / "seojae.ico"),
+    icon=ICON,
 )
 
+mcp_exe = EXE(
+    PYZ(mcp_analysis.pure),
+    mcp_analysis.scripts,
+    [],
+    exclude_binaries=True,
+    name="seojae-mcp",
+    debug=False,
+    strip=False,
+    upx=False,
+    console=True,  # stdio가 MCP 통로다. 콘솔 모드여야 표준 입출력이 있다
+    icon=ICON,
+)
+
+# 실행 파일 둘, 자원은 한 벌. 양쪽 분석 결과를 합쳐 빠지는 것이 없게 한다.
 COLLECT(
-    exe,
-    analysis.binaries,
-    analysis.datas,
+    app_exe,
+    mcp_exe,
+    app_analysis.binaries + mcp_analysis.binaries,
+    app_analysis.datas + mcp_analysis.datas,
     strip=False,
     upx=False,
     name="서재",

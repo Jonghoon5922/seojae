@@ -4,7 +4,7 @@
   "display_name": "서재 (Seojae)",
   "version": "0.1.0",
   "description": "폴더에 문서를 꽂아두면 Claude가 꺼내 읽는 로컬 서재. 한국어 형태소 검색.",
-  "long_description": "지정한 폴더 하나를 서재로 삼습니다. 폴더 하나가 책장 하나이고, 각 책장의 README.md에 적은 설명이 Claude가 어느 책장을 열지 고르는 근거가 됩니다.\n\n- md, txt, pdf, docx를 색인하며 docx는 표 안의 내용까지 읽습니다\n- 모든 검색 결과에 출처(파일 경로와 헤딩·페이지)가 붙습니다\n- kiwipiepy 형태소 분석으로 한국어를 검색합니다. 임베딩 모델을 내려받지 않습니다\n- _inbox 폴더에 파일을 던져두면 Claude가 읽고 알맞은 책장으로 옮깁니다. 모든 이동은 되돌릴 수 있습니다\n\n문서는 이 PC를 떠나지 않습니다. 외부 API를 호출하지 않고, 계정도 서버도 없습니다. 지정한 폴더 바깥은 어떤 경우에도 읽거나 쓰지 않습니다.\n\n[설치 전 준비] uv가 필요합니다. 없으면 설치하세요.\n  Windows: winget install --id astral-sh.uv\n  macOS/Linux: curl -LsSf https://astral.sh/uv/install.sh | sh\n서재 본체는 처음 실행할 때 uv가 PyPI에서 자동으로 받습니다.",
+  "long_description": "지정한 폴더 하나를 서재로 삼습니다. 폴더 하나가 책장 하나이고, 각 책장의 README.md에 적은 설명이 Claude가 어느 책장을 열지 고르는 근거가 됩니다.\n\n- md, txt, pdf, docx를 색인하며 docx는 표 안의 내용까지 읽습니다\n- 모든 검색 결과에 출처(파일 경로와 헤딩·페이지)가 붙습니다\n- kiwipiepy 형태소 분석으로 한국어를 검색합니다. 임베딩 모델을 내려받지 않습니다\n- _미분류 폴더에 파일을 던져두면 Claude가 읽고 알맞은 책장으로 옮깁니다. 모든 이동은 되돌릴 수 있습니다\n\n문서는 이 PC를 떠나지 않습니다. 외부 API를 호출하지 않고, 계정도 서버도 없습니다. 지정한 폴더 바깥은 어떤 경우에도 읽거나 쓰지 않습니다.\n\n[설치 전 준비] uv가 필요합니다. 없으면 설치하세요.\n  Windows: winget install --id astral-sh.uv\n  macOS/Linux: curl -LsSf https://astral.sh/uv/install.sh | sh\n서재 본체는 처음 실행할 때 uv가 PyPI에서 자동으로 받습니다.",
   "author": {
     "name": "Jonghoon5922",
     "url": "https://github.com/Jonghoon5922"
@@ -32,7 +32,7 @@
     "root": {
       "type": "directory",
       "title": "서재 폴더",
-      "description": "문서를 넣어둘 폴더입니다. 이 폴더 바깥은 절대 읽지 않습니다. 하위 폴더 하나가 책장 하나가 되고, _inbox 폴더는 분류 전 파일을 던져두는 자리입니다.",
+      "description": "문서를 넣어둘 폴더입니다. 이 폴더 바깥은 절대 읽지 않습니다. 하위 폴더 하나가 책장 하나가 되고, _미분류 폴더는 분류 전 파일을 던져두는 자리입니다.",
       "required": true,
       "default": "${DOCUMENTS}/서재"
     }

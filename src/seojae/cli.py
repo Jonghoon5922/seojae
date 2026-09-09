@@ -21,6 +21,18 @@ from .index import index_root, last_indexed_at, open_db
 from .paths import INBOX_DIRNAME, resolve_root
 from .search import failed_documents, get_document, list_collections, list_documents, search
 
+# 윈도우 콘솔·파이프의 기본 인코딩은 cp949다. 한글은 넘어가지만 `—` 같은 문자에서
+# UnicodeEncodeError로 죽는다. 출력을 파이프로 넘길 때(예: 설치 프로그램이 숨겨서
+# 실행할 때) 실제로 터진다. 그래서 진입 시점에 한 번 UTF-8로 돌린다.
+#
+# serve 중에는 stdout이 MCP 프로토콜 채널이지만, MCP SDK가 파일 서술자 1을 직접
+# 가져가 자기 인코딩으로 감싸므로 여기서 손대도 영향이 없다.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError, ValueError):
+        pass
+
 app = typer.Typer(
     name="seojae",
     help="서재 — 폴더에 문서를 꽂아두면 Claude가 꺼내 읽는 로컬 RAG MCP 서버.",
@@ -262,12 +274,6 @@ def serve(
 ) -> None:
     """색인 후 MCP(stdio) 서버를 띄운다. Claude Code가 이 명령을 실행한다."""
     # stdout은 MCP 프로토콜 채널이다. 사람에게 보여줄 것은 전부 stderr로 보낸다.
-    # 윈도우 콘솔은 기본이 cp949라 한글 로그가 깨진다. stderr만 UTF-8로 돌린다
-    # (stdout은 프로토콜 채널이라 손대지 않는다).
-    try:
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    except (AttributeError, OSError):
-        pass
     err = Console(stderr=True)
 
     try:
@@ -294,6 +300,65 @@ def serve(
     watching = "" if no_watch else " + 파일 감시"
     err.print(f"[dim]MCP 서버 시작 (stdio){watching} — 루트: {root_path}[/dim]")
     run_server(root_path, watch=not no_watch, on_change=on_change)
+
+
+def _log_install(message: str) -> None:
+    """설치 프로그램은 이 명령을 숨겨서 실행한다. 화면에 뜬 글씨는 아무도 못 본다.
+    그래서 앱과 같은 로그 파일에 남긴다. 등록이 안 됐을 때 여기를 보면 이유가 있다."""
+    from datetime import datetime
+
+    from .appconfig import log_path
+
+    try:
+        with log_path().open("a", encoding="utf-8") as f:
+            f.write(f"{datetime.now().isoformat(timespec='seconds')}  {message}\n")
+    except OSError:
+        pass
+
+
+@app.command(name="mcp-register")
+def mcp_register(
+    command: Optional[str] = typer.Option(
+        None, "--command", help="등록할 실행 명령 (생략하면 지금 실행 중인 것)"
+    ),
+) -> None:
+    """Claude Desktop 설정에 서재를 등록한다. 설치 프로그램이 이 명령을 부른다.
+
+    서재 폴더 경로는 넘기지 않는다. 서버가 앱과 같은 설정을 보고 스스로 찾으므로,
+    설정 화면에서 서재를 옮기면 Claude가 보는 서재도 따라간다.
+    """
+    from .desktop_config import ConfigError, register
+
+    if command is None:
+        # 묶인 실행 파일이면 그 자신, 개발 환경이면 콘솔 스크립트.
+        command = sys.executable if getattr(sys, "frozen", False) else "seojae-mcp"
+
+    try:
+        message = register(command)
+    except ConfigError as e:
+        _log_install(f"[등록 실패] {e}")
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(code=1)
+
+    _log_install(message)
+    console.print(message)
+    console.print("[dim]Claude Desktop을 껐다 켜면 서재가 붙는다.[/dim]")
+
+
+@app.command(name="mcp-unregister")
+def mcp_unregister() -> None:
+    """Claude Desktop 설정에서 서재를 지운다. 다른 MCP 서버는 건드리지 않는다."""
+    from .desktop_config import ConfigError, unregister
+
+    try:
+        message = unregister()
+    except ConfigError as e:
+        _log_install(f"[해제 실패] {e}")
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(code=1)
+
+    _log_install(message)
+    console.print(message)
 
 
 @app.command(name="app")
