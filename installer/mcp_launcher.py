@@ -28,12 +28,26 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, OSError, ValueError):
         pass
 
-PASSTHROUGH = {
+#: 짧게 쓰라고 둔 별칭. 사람도 LLM도 `register cursor` 라고 친다.
+ALIASES = {
     "register": "mcp-register",
     "unregister": "mcp-unregister",
-    "mcp-list": "mcp-list",
     "list": "mcp-list",
 }
+
+
+def cli_commands() -> set[str]:
+    """CLI가 실제로 가진 명령 이름.
+
+    `--commands` 가 목록을 보여주는데 정작 실행이 안 되면 도움말이 거짓말이 된다.
+    실제로 그랬다 — `ui` 를 서재 폴더 이름으로 넘겨버렸다.
+    """
+    from seojae.cli import app
+
+    names = set()
+    for command in app.registered_commands:
+        names.add(command.name or (command.callback.__name__ if command.callback else ""))
+    return {n for n in names if n}
 
 
 USAGE = """서재 (Seojae) — MCP 서버
@@ -72,12 +86,14 @@ def main() -> int:
         app()
         return 0
 
-    if args and args[0] in PASSTHROUGH:
+    if args and args[0] in ALIASES:
         rest = list(args[1:])
         # `register cursor` 처럼 앱 이름을 바로 받는다. 사람도 LLM도 그렇게 쓴다.
         if rest and not rest[0].startswith("-"):
             rest = ["--client", *rest]
-        forwarded = [PASSTHROUGH[args[0]], *rest]
+        forwarded = [ALIASES[args[0]], *rest]
+    elif args and args[0] in cli_commands():
+        forwarded = list(args)
     else:
         if args:
             root = args[0]
