@@ -450,7 +450,7 @@ def parse_xlsx(path: Path) -> ParsedDoc: ...
 ```
 
 지원: 마크다운 · 텍스트 · 소스코드(36종) · PDF · Word · **한글(hwpx)** · **Excel** ·
-**csv/tsv** · **PowerPoint** · **HTML** · **이미지** — 확장자 54개, 11종.
+**csv/tsv** · **PowerPoint** · **HTML** · **이미지** — 확장자 60개, 11종.
 
 형식별로 정한 것:
 
