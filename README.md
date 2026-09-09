@@ -291,7 +291,7 @@ PDF는 `p.7`, docx는 절 제목이 같은 자리에 들어간다.
 
 ### Claude Desktop — 설치 파일 하나
 
-[Releases](https://github.com/Jonghoon5922/seojae/releases)에서 `seojae-setup-0.1.0.exe`를
+[Releases](https://github.com/Jonghoon5922/seojae/releases)에서 `seojae-setup-*.exe`를
 받아 실행한다. **미리 깔아둘 것은 없다.** 파이썬도 uv도 필요 없다.
 
 설치 화면의 "Claude Desktop에 서재를 등록합니다"를 켜두면 설정 파일에 항목 하나가
