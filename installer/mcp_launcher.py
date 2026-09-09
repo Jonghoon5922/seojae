@@ -19,6 +19,15 @@ from __future__ import annotations
 
 import sys
 
+# 윈도우 콘솔·파이프의 기본 인코딩은 cp949다. 이 파일은 CLI를 import 하기 **전에**
+# 도움말을 찍으므로, cli.py 의 교정이 아직 안 걸린 상태다. 실제로 `--help` 가
+# UnicodeEncodeError 로 죽었다 — 하필 안내를 보려고 치는 명령에서.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError, ValueError):
+        pass
+
 PASSTHROUGH = {
     "register": "mcp-register",
     "unregister": "mcp-unregister",
