@@ -53,7 +53,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 ; Claude Desktop 설정 파일에 MCP 서버 항목 하나를 더한다. 남의 설정은 건드리지 않고
 ; 고치기 전에 백업을 남긴다. 끄고 설치해도 나중에 직접 등록할 수 있다.
-Name: "claudereg"; Description: "Claude Desktop에 서재를 등록합니다 (Claude가 이 서재를 검색할 수 있게 됩니다)"; GroupDescription: "연동:"
+Name: "claudereg"; Description: "Claude Desktop에 서재를 연결합니다 (Claude가 이 서재를 검색할 수 있게 됩니다)"; GroupDescription: "연동:"
+; Cursor·VS Code 등 다른 앱은 설치 후 앱의 설정 탭에서 연결한다. 여기 다 늘어놓으면
+; 설치 화면이 길어지고, 대부분은 안 쓰는 앱이다.
 
 [Files]
 Source: "..\dist\app\서재\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
@@ -99,14 +101,14 @@ begin
         '설정을 시작할 때만 읽기 때문에, 껐다 켜야 서재가 붙습니다.' + #13#10 + #13#10 +
         '그다음 Claude에게 이렇게 물어보세요:' + #13#10 +
         '    "서재에 어떤 책장이 있어?"' + #13#10 + #13#10 +
-        '시작 메뉴의 [서재]를 누르면 문서를 넣고 정리하는 창이 열립니다.'
+        '시작 메뉴의 [서재]를 누르면 문서를 넣고 정리하는 창이 열립니다.' + #13#10 +
+        'Cursor 같은 다른 앱에 붙이려면 그 창의 설정 탭에서 하면 됩니다.'
     else
       WizardForm.FinishedLabel.Caption :=
         '서재를 설치했습니다.' + #13#10 + #13#10 +
-        'Claude Desktop 등록은 건너뛰었습니다. 나중에 붙이려면' + #13#10 +
-        '설치 폴더에서 이 명령을 실행하세요:' + #13#10 +
-        '    seojae-mcp.exe register' + #13#10 + #13#10 +
-        '시작 메뉴의 [서재]를 누르면 창이 열립니다. 창만 쓰는 데는' + #13#10 +
-        '등록이 필요 없습니다.';
+        'Claude Desktop 연결은 건너뛰었습니다.' + #13#10 + #13#10 +
+        '나중에 붙이려면 시작 메뉴에서 [서재]를 열고' + #13#10 +
+        '설정 탭에서 연결하세요. Cursor, VS Code 등도 거기서 됩니다.' + #13#10 + #13#10 +
+        '창만 쓰는 데는 연결이 필요 없습니다.';
   end;
 end;

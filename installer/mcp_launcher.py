@@ -11,6 +11,7 @@ Claude Desktop이 이 실행 파일을 자식 프로세스로 띄우고 stdin/st
     seojae-mcp.exe                MCP 서버 (Claude Desktop이 이렇게 부른다)
     seojae-mcp.exe <폴더>          그 폴더를 서재로 삼아 서버
     seojae-mcp.exe register       Claude Desktop 설정에 등록 (인스톨러가 부른다)
+    seojae-mcp.exe register cursor  다른 앱에 등록 (앱 이름은 mcp-list 로 확인)
     seojae-mcp.exe unregister     등록 해제 (제거 프로그램이 부른다)
 """
 
@@ -25,7 +26,11 @@ def main() -> int:
     args = sys.argv[1:]
 
     if args and args[0] in PASSTHROUGH:
-        forwarded = [PASSTHROUGH[args[0]], *args[1:]]
+        rest = list(args[1:])
+        # `register cursor` 처럼 앱 이름을 바로 받는다. 사람도 LLM도 그렇게 쓴다.
+        if rest and not rest[0].startswith("-"):
+            rest = ["--client", *rest]
+        forwarded = [PASSTHROUGH[args[0]], *rest]
     else:
         if args:
             root = args[0]

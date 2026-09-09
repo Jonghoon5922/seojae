@@ -366,25 +366,53 @@ def readings(
     conn.close()
 
 
+@app.command(name="mcp-list")
+def mcp_list() -> None:
+    """어느 앱에 연결돼 있는지 훑는다."""
+    from .mcp_clients import survey
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("이름", style="cyan")
+    table.add_column("앱")
+    table.add_column("연결")
+    table.add_column("설정 파일", style="dim")
+
+    for c in survey():
+        if c["registered"]:
+            상태 = "[green]연결됨[/green]"
+        elif c["exists"]:
+            상태 = "[yellow]안 함[/yellow]"
+        else:
+            상태 = "[dim]앱 없음[/dim]"
+        table.add_row(c["name"], c["label"], 상태, c["path"])
+
+    console.print(table)
+    console.print("\n[dim]연결: seojae mcp-register --client <이름>[/dim]")
+
+
 @app.command(name="mcp-register")
 def mcp_register(
+    client: str = typer.Option(
+        None, "--client", "-c", help="어느 앱에 (mcp-list 로 확인). 기본은 claude-desktop"
+    ),
     command: Optional[str] = typer.Option(
         None, "--command", help="등록할 실행 명령 (생략하면 지금 실행 중인 것)"
     ),
 ) -> None:
-    """Claude Desktop 설정에 서재를 등록한다. 설치 프로그램이 이 명령을 부른다.
+    """MCP 클라이언트 설정에 서재를 등록한다. 설치 프로그램이 이 명령을 부른다.
 
     서재 폴더 경로는 넘기지 않는다. 서버가 앱과 같은 설정을 보고 스스로 찾으므로,
-    설정 화면에서 서재를 옮기면 Claude가 보는 서재도 따라간다.
+    설정 화면에서 서재를 옮기면 클라이언트가 보는 서재도 따라간다.
     """
-    from .desktop_config import ConfigError, register
+    from .mcp_clients import ConfigError, get_client, register
 
     if command is None:
         # 묶인 실행 파일이면 그 자신, 개발 환경이면 콘솔 스크립트.
         command = sys.executable if getattr(sys, "frozen", False) else "seojae-mcp"
 
     try:
-        message = register(command)
+        message = register(command, client=client)
+        after = get_client(client).after
     except ConfigError as e:
         _log_install(f"[등록 실패] {e}")
         console.print(f"[red]{e}[/red]")
@@ -392,16 +420,18 @@ def mcp_register(
 
     _log_install(message)
     console.print(message)
-    console.print("[dim]Claude Desktop을 껐다 켜면 서재가 붙는다.[/dim]")
+    console.print(f"[dim]{after}[/dim]")
 
 
 @app.command(name="mcp-unregister")
-def mcp_unregister() -> None:
-    """Claude Desktop 설정에서 서재를 지운다. 다른 MCP 서버는 건드리지 않는다."""
-    from .desktop_config import ConfigError, unregister
+def mcp_unregister(
+    client: str = typer.Option(None, "--client", "-c", help="어느 앱에서"),
+) -> None:
+    """MCP 클라이언트 설정에서 서재를 지운다. 다른 서버는 건드리지 않는다."""
+    from .mcp_clients import ConfigError, unregister
 
     try:
-        message = unregister()
+        message = unregister(client=client)
     except ConfigError as e:
         _log_install(f"[해제 실패] {e}")
         console.print(f"[red]{e}[/red]")
@@ -409,6 +439,7 @@ def mcp_unregister() -> None:
 
     _log_install(message)
     console.print(message)
+
 
 
 @app.command(name="app")

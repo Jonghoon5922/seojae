@@ -179,6 +179,21 @@
     margin: 16px 0 0; padding-top: 12px; border-top: 1px solid var(--line);
     font-size: 12px; color: var(--dim);
   }
+  .client {
+    display: flex; align-items: center; gap: 10px; padding: 10px 0;
+    border-top: 1px solid var(--line);
+  }
+  .client:first-child { border-top: none; }
+  .client .who { flex: 1; min-width: 0; }
+  .client .who b { display: block; }
+  .client .where {
+    font-size: 11px; color: var(--dim); overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .client .state { font-size: 12px; white-space: nowrap; }
+  .client .state.on { color: var(--ok); }
+  .client .state.off { color: var(--dim); }
+
   .welcome .no { color: var(--warn); }
   .welcome .yes { color: var(--ok); }
 </style>
@@ -321,6 +336,18 @@
       </div>
     </div>
 
+    <!-- 첫 연결의 진짜 입구. 설치하면 앱은 이미 열려 있으니 버튼 한 번이면 된다. -->
+    <div class="card">
+      <div class="row" style="margin-bottom:4px">
+        <h2 style="margin:0">Claude·Cursor 연결</h2>
+      </div>
+      <p class="lead" style="margin:0 0 12px">
+        연결하면 그 앱의 설정 파일에 서재 항목 하나가 들어갑니다.
+        <b>다른 설정은 건드리지 않고</b>, 고치기 전에 백업을 남깁니다.
+      </p>
+      <div id="clientList"></div>
+    </div>
+
     <div class="card">
       <h2>읽을 수 있는 형식</h2>
       <div id="setFormats"></div>
@@ -436,13 +463,12 @@ function renderWelcome(s) {
   // 읽으므로, 설치 중에 켜져 있었다면 껐다 켜기 전까지 도구가 안 보인다.
   // 그 말을 안 하면 "등록됐다는데 왜 안 되지"가 된다.
   $("#wClaude").innerHTML = s.claude_registered
-    ? `<span class="yes">Claude Desktop에 등록되어 있습니다.</span> ` +
+    ? `<span class="yes">연결되어 있습니다.</span> ` +
       `아직 도구가 안 보이면 <b>Claude Desktop을 껐다 켜세요</b> — ` +
       `설정은 시작할 때만 읽습니다. 그다음 이렇게 물어보세요:`
-    : `<span class="no">Claude Desktop에 아직 등록되지 않았습니다.</span> ` +
-      `설치 프로그램을 다시 실행해 "Claude Desktop에 서재를 등록합니다"를 켜거나, ` +
-      `설치 폴더의 <code>seojae-mcp.exe register</code> 를 실행하세요. ` +
-      `등록한 뒤 Claude Desktop을 껐다 켜면 이렇게 물어볼 수 있습니다:`;
+    : `<span class="no">아직 어느 앱에도 연결되지 않았습니다.</span> ` +
+      `<b>설정 탭</b>에서 Claude Desktop이나 Cursor에 연결하세요 — 버튼 한 번이면 됩니다. ` +
+      `연결한 뒤 그 앱을 껐다 켜면 이렇게 물어볼 수 있습니다:`;
 }
 
 $("#wOpenRoot").onclick = async () => {
@@ -1074,6 +1100,46 @@ $("#unreadBtn").onclick = async () => {
 };
 
 // ── 설정 ────────────────────────────────────────────────────
+// ── 연결 목록 ────────────────────────────────────────────────
+// 첫 연결의 입구다. LLM에게 "서재 연결해줘"라고 시키려면 LLM이 먼저 서재를
+// 알아야 하는데, 연결 전에는 알 길이 없다 — 순환이다. 그래서 버튼이다.
+async function loadClients() {
+  const box = $("#clientList");
+  let rows;
+  try { rows = await api("/api/clients"); }
+  catch (e) { toast(e.message, true); return; }
+
+  box.innerHTML = "";
+  for (const c of rows) {
+    const row = el("div", "client");
+    const who = el("div", "who");
+    who.innerHTML = `<b>${esc(c.label)}</b>` +
+      `<span class="where">${esc(c.path)}</span>`;
+
+    const state = el("span", "state " + (c.registered ? "on" : "off"));
+    state.textContent = c.registered ? "연결됨"
+      : c.exists ? "연결 안 됨" : "앱이 안 보임";
+
+    const btn = el("button", "act" + (c.registered ? " ghost" : ""));
+    btn.textContent = c.registered ? "해제" : "연결";
+    btn.onclick = async () => {
+      btn.disabled = true;
+      try {
+        const r = await api("/api/clients/" + encodeURIComponent(c.name),
+          { method: c.registered ? "DELETE" : "POST" });
+        toast(c.registered ? `${c.label} 연결을 해제했습니다.`
+                           : `${c.label}에 연결했습니다. ${c.after}`);
+        loadClients();
+      } catch (e) { toast(e.message, true); btn.disabled = false; }
+    };
+
+    row.appendChild(who);
+    row.appendChild(state);
+    row.appendChild(btn);
+    box.appendChild(row);
+  }
+}
+
 async function loadSettings() {
   let s;
   try { s = await api("/api/settings"); }
@@ -1133,7 +1199,7 @@ const loaders = {
   shelves: loadShelves,
   inbox: loadInbox,
   moves: () => { loadMoves(); loadReadings(); },
-  settings: loadSettings,
+  settings: () => { loadSettings(); loadClients(); },
 };
 
 document.querySelectorAll("nav button").forEach(b => {

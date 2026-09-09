@@ -28,7 +28,7 @@ from pydantic import BaseModel
 
 from . import __version__, ledger, organize
 from .appconfig import config_path, log_path, write_root
-from .desktop_config import registered_command
+from .mcp_clients import ConfigError, register, survey, unregister
 from .index import index_root, last_indexed_at
 from .parsers import describe_formats, supported_extensions
 from .paths import INBOX_DIRNAME, OutsideRootError
@@ -82,6 +82,19 @@ def _is_local_origin(origin: str) -> bool:
     except ValueError:
         return False
     return host in {"127.0.0.1", "localhost", "::1"}
+
+
+def _mcp_command() -> str:
+    """클라이언트가 실행할 명령. 묶인 앱이면 옆에 있는 콘솔 실행 파일이다.
+
+    창 모드 실행 파일(`서재.exe`)에는 표준 입출력이 없어서 MCP를 못 띄운다.
+    그래서 같은 폴더의 `seojae-mcp.exe` 를 가리켜야 한다.
+    """
+    if getattr(sys, "frozen", False):
+        mate = Path(sys.executable).with_name("seojae-mcp.exe")
+        if mate.is_file():
+            return str(mate)
+    return "seojae-mcp"
 
 
 def _open_in_file_manager(folder: Path) -> None:
@@ -153,7 +166,7 @@ def create_app(
                 # 첫 실행 안내를 띄울지 여기서 판단한다.
                 "shelved_count": shelved_total(conn),
                 "inbox_count": organize.inbox_count(conn),
-                "claude_registered": registered_command() is not None,
+                "claude_registered": any(c["registered"] for c in survey()),
                 # 첫 실행 안내가 쓰는 값들. 숫자를 화면에 적어두면 어긋나므로
                 # 등록기에서 그때그때 센다.
                 "inbox_dirname": INBOX_DIRNAME,
@@ -430,6 +443,33 @@ def create_app(
         except OSError as e:
             return fail(f"폴더를 열지 못했다: {e}")
         return {"opened": str(root)}
+
+    @app.get("/api/clients")
+    def api_clients() -> list[dict[str, Any]]:
+        """어느 앱에 연결돼 있는지. 설정 화면의 연결 목록이 이걸 그린다."""
+        return survey()
+
+    @app.post("/api/clients/{client}")
+    def api_connect(client: str):
+        """그 앱에 서재를 등록한다.
+
+        **여기가 첫 연결의 진짜 입구다.** 설치하면 앱은 이미 열려 있으므로
+        버튼 한 번이면 된다. LLM에게 시키려면 LLM이 먼저 서재를 알아야 하는데,
+        연결 전에는 알 길이 없다 — 순환이다.
+        """
+        exe = _mcp_command()
+        try:
+            message = register(exe, client=client)
+        except ConfigError as e:
+            return fail(str(e))
+        return {"message": message}
+
+    @app.delete("/api/clients/{client}")
+    def api_disconnect(client: str):
+        try:
+            return {"message": unregister(client=client)}
+        except ConfigError as e:
+            return fail(str(e))
 
     @app.get("/api/settings")
     def api_settings() -> dict[str, Any]:
