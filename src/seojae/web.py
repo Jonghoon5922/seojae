@@ -23,7 +23,7 @@ from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-from . import __version__, organize
+from . import __version__, ledger, organize
 from .appconfig import config_path, log_path, write_root
 from .index import index_root, last_indexed_at
 from .paths import INBOX_DIRNAME, OutsideRootError
@@ -160,6 +160,17 @@ def create_app(
             counts = term_document_counts(conn, q, collection)
             hint = search_hint(conn, q, hits, collection, counts=counts)
             total = document_total(conn, collection)
+            # 내가 앱에서 한 검색도 같은 대출 기록에 남는다. 다른 것은 "누가"뿐이다.
+            ledger.record(
+                conn,
+                tool="search",
+                client=ledger.APP_CLIENT,
+                query=q,
+                collection=collection or "",
+                hits=len(hits),
+                docs=sorted({h.source for h in hits}),
+                note=hint or "",
+            )
 
         return {
             "query": q,
@@ -254,6 +265,35 @@ def create_app(
     def api_moves(limit: int = 30) -> list[dict[str, Any]]:
         with lock:
             return organize.list_moves(conn, limit=limit)
+
+    @app.get("/api/readings")
+    def api_readings(limit: int = 60, only_empty: bool = False) -> dict[str, Any]:
+        """대출 기록 — 누가 언제 왜 무엇을 꺼내 갔는지."""
+        with lock:
+            rows = ledger.readings(conn, limit=limit, only_empty=only_empty)
+            stats = ledger.summary(conn)
+        return {
+            "summary": stats,
+            "readings": [
+                {
+                    "ts": r.ts,
+                    "client": r.client,
+                    "tool": r.tool,
+                    "query": r.query,
+                    "collection": r.collection,
+                    "hits": r.hits,
+                    "docs": r.docs,
+                    "note": r.note,
+                }
+                for r in rows
+            ],
+        }
+
+    @app.get("/api/readings/unread")
+    def api_unread(limit: int = 50) -> list[str]:
+        """한 번도 꺼내진 적 없는 문서. 아무도 안 찾은 책이다."""
+        with lock:
+            return ledger.unread_documents(conn, limit=limit)
 
     @app.post("/api/undo")
     def api_undo():

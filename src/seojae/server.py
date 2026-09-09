@@ -16,8 +16,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.context import Context
 
-from . import __version__, organize
+from . import __version__, ledger, organize
 from .index import open_db
 from .parsers.image import is_image, mime_type
 from .paths import OutsideRootError
@@ -121,6 +122,20 @@ def create_server(
         instructions=build_instructions(conn, root),
     )
 
+    def borrower(ctx: Context) -> str:
+        """이 요청을 보낸 쪽이 누구인지. `initialize` 때 클라이언트가 스스로 밝힌다.
+
+        못 알아내도 검색은 계속되어야 하므로 예외를 삼키고 "알 수 없음"으로 둔다.
+        """
+        try:
+            params = ctx.request_context.session.client_params
+            info = params.client_info if params else None
+            return ledger.label_client(
+                info.name if info else None, info.version if info else None
+            )
+        except Exception:
+            return ledger.UNKNOWN_CLIENT
+
     @server.tool(
         name="list_collections",
         description=(
@@ -170,6 +185,7 @@ def create_server(
         ),
     )
     def search_tool(
+        ctx: Context,
         query: str,
         collection: str | None = None,
         top_k: int = 5,
@@ -182,6 +198,20 @@ def create_server(
             counts = term_document_counts(conn, query, collection)
             hint = search_hint(conn, query, hits, collection, counts=counts)
             total_docs = document_total(conn, collection)
+            # 대출 기록. 검색어가 "왜"이고, 건네준 문서가 "무엇을"이다.
+            # hits 가 0이면 빈손으로 돌아간 것 — 서재에 뭘 채울지 알려주는 기록이다.
+            ledger.record(
+                conn,
+                tool="search",
+                client=borrower(ctx),
+                query=query,
+                collection=collection or "",
+                hits=len(hits),
+                docs=sorted({h.source for h in hits}),
+                # 힌트가 붙었다는 건 이 서재가 쓰지 않는 말로 찾았다는 뜻이다.
+                # 결과 건수보다 이쪽이 헛걸음을 더 잘 잡는다.
+                note=hint or "",
+            )
 
         return {
             "query": query,
@@ -212,9 +242,16 @@ def create_server(
             "문서를 전부 나열하지 않으므로 가볍다. 어디를 뒤질지 정할 때 쓴다."
         ),
     )
-    def get_collection_guide_tool(collection: str) -> dict[str, Any]:
+    def get_collection_guide_tool(ctx: Context, collection: str) -> dict[str, Any]:
         with lock:
             guide = collection_guide(conn, collection)
+            ledger.record(
+                conn,
+                tool="get_collection_guide",
+                client=borrower(ctx),
+                collection=collection,
+                hits=1 if guide else 0,
+            )
         if guide is None:
             return {"error": f"'{collection}' 책장을 찾을 수 없다. list_collections로 확인하라."}
         if not guide["guide"]:
@@ -233,9 +270,19 @@ def create_server(
             "이미지 파일이면 이미지 자체를 돌려주므로 직접 보고 판단하면 된다."
         ),
     )
-    def get_document_tool(document_id: int, section: str | None = None):
+    def get_document_tool(ctx: Context, document_id: int, section: str | None = None):
         with lock:
             doc = get_document(conn, document_id, section=section)
+            if doc is not None:
+                ledger.record(
+                    conn,
+                    tool="get_document",
+                    client=borrower(ctx),
+                    query=section or "",
+                    collection=doc.get("collection", ""),
+                    hits=1,
+                    docs=[doc["path"]],
+                )
         if doc is None:
             return {"error": f"문서 {document_id}를 찾을 수 없다. list_documents로 id를 확인하라."}
 

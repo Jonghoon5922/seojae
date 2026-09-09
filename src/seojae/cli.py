@@ -316,6 +316,56 @@ def _log_install(message: str) -> None:
         pass
 
 
+@app.command()
+def readings(
+    root: str = RootArg,
+    limit: int = typer.Option(20, "--limit", "-n", help="몇 건까지"),
+    missed: bool = typer.Option(False, "--missed", help="헛걸음만 (서재에 없는 것을 찾은 기록)"),
+    unread: bool = typer.Option(False, "--unread", help="한 번도 꺼내진 적 없는 문서"),
+) -> None:
+    """대출 기록 — 누가 언제 왜 무엇을 꺼내 갔는지."""
+    from . import ledger
+
+    root_path, conn = _open(root)
+
+    if unread:
+        never = ledger.unread_documents(conn, limit=limit)
+        if not never:
+            console.print("[dim]모든 문서가 한 번은 꺼내졌다.[/dim]")
+        else:
+            console.print(f"[bold]한 번도 꺼내진 적 없는 문서 {len(never)}건[/bold]")
+            for path in never:
+                console.print(f"  {path}")
+        conn.close()
+        return
+
+    stats = ledger.summary(conn)
+    rows = ledger.readings(conn, limit=limit, only_empty=missed)
+
+    if not rows:
+        console.print("[dim]아직 기록이 없다.[/dim]")
+        conn.close()
+        return
+
+    who = " · ".join(f"{c['name']} {c['count']}회" for c in stats["clients"])
+    console.print(f"[dim]전체 {stats['total']}회 · 헛걸음 {stats['empty']}회 · {who}[/dim]\n")
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("언제", style="dim", no_wrap=True)
+    table.add_column("누가")
+    table.add_column("무엇을")
+    table.add_column("왜 (검색어)")
+    table.add_column("건", justify="right")
+
+    for r in rows:
+        why = r.query or (f"[dim]{r.collection}[/dim]" if r.collection else "")
+        if r.note:
+            why += "  [yellow]헛걸음[/yellow]"
+        table.add_row(r.ts.replace("T", " ")[5:], r.client, r.tool, why, str(r.hits))
+    console.print(table)
+    conn.close()
+
+
 @app.command(name="mcp-register")
 def mcp_register(
     command: Optional[str] = typer.Option(

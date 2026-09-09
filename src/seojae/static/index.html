@@ -279,6 +279,20 @@
       </div>
       <div id="movesList"></div>
     </div>
+
+    <!-- 대출 기록. 위와 달리 사람이 아니라 Claude의 행적이다. -->
+    <div class="card" style="margin-top:14px">
+      <div class="row" style="margin-bottom:10px">
+        <h2 style="margin:0">꺼내 간 기록</h2>
+        <span class="spacer" style="flex:1"></span>
+        <label style="color:var(--dim);font-size:12px">
+          <input type="checkbox" id="missedOnly"> 헛걸음만
+        </label>
+        <button class="act ghost" id="unreadBtn">안 꺼내진 문서</button>
+      </div>
+      <div id="readingSummary" class="hint" style="margin-bottom:10px"></div>
+      <div id="readingsList"></div>
+    </div>
   </section>
 </main>
 
@@ -894,6 +908,71 @@ async function loadMoves() {
   box.appendChild(t);
 }
 
+// ── 대출 기록 ───────────────────────────────────────────────
+// 위쪽 "옮긴 기록"은 내가 한 일, 이쪽은 Claude가 한 일이다.
+// "왜"는 검색어 그 자체다 — 이 앱은 LLM을 부르지 않으므로 의도를 물어볼 길이 없고,
+// 어떤 말로 찾았는지가 의도에 가장 가깝다.
+async function loadReadings() {
+  const box = $("#readingsList");
+  const only = $("#missedOnly").checked;
+  let data;
+  try { data = await api("/api/readings?only_empty=" + (only ? "true" : "false")); }
+  catch (e) { toast(e.message, true); return; }
+
+  const s = data.summary;
+  $("#readingSummary").textContent = s.total
+    ? `전체 ${s.total}회 · 헛걸음 ${s.empty}회 · ` +
+      s.clients.map(c => `${c.name} ${c.count}회`).join(" · ")
+    : "";
+
+  box.innerHTML = "";
+  if (!data.readings.length) {
+    box.appendChild(el("div", "empty",
+      only ? "헛걸음이 없습니다." : "아직 꺼내 간 기록이 없습니다."));
+    return;
+  }
+
+  const t = el("table");
+  t.innerHTML = "<tr><th>언제</th><th>누가</th><th>무엇을</th><th>왜</th><th>건</th></tr>";
+  for (const r of data.readings) {
+    const tr = el("tr");
+    let why = esc(r.query || r.collection || "");
+    if (r.note) why += ` <span style="color:var(--warn,#b26b00)">헛걸음</span>`;
+    if (r.docs.length) {
+      why += `<br><span style="color:var(--dim);font-size:12px">${esc(r.docs.join(", "))}</span>`;
+    }
+    tr.innerHTML =
+      `<td>${esc(r.ts.slice(5, 19).replace("T", " "))}</td>` +
+      `<td>${esc(r.client)}</td>` +
+      `<td>${esc(r.tool)}</td>` +
+      `<td>${why}</td>` +
+      `<td>${r.hits}</td>`;
+    t.appendChild(tr);
+  }
+  box.appendChild(t);
+}
+
+$("#missedOnly").addEventListener("change", loadReadings);
+
+$("#unreadBtn").onclick = async () => {
+  let never;
+  try { never = await api("/api/readings/unread"); }
+  catch (e) { toast(e.message, true); return; }
+  const box = $("#readingsList");
+  box.innerHTML = "";
+  $("#readingSummary").textContent = never.length
+    ? `한 번도 꺼내진 적 없는 문서 ${never.length}건`
+    : "모든 문서가 한 번은 꺼내졌습니다.";
+  const t = el("table");
+  t.innerHTML = "<tr><th>문서</th></tr>";
+  for (const path of never) {
+    const tr = el("tr");
+    tr.innerHTML = `<td>${esc(path)}</td>`;
+    t.appendChild(tr);
+  }
+  if (never.length) box.appendChild(t);
+};
+
 // ── 설정 ────────────────────────────────────────────────────
 async function loadSettings() {
   let s;
@@ -953,7 +1032,7 @@ const loaders = {
   search: loadStatus,
   shelves: loadShelves,
   inbox: loadInbox,
-  moves: loadMoves,
+  moves: () => { loadMoves(); loadReadings(); },
   settings: loadSettings,
 };
 

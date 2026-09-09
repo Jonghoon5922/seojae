@@ -105,6 +105,29 @@ CREATE TABLE IF NOT EXISTS moves (
 );
 
 CREATE INDEX IF NOT EXISTS idx_moves_undone ON moves(undone, id);
+
+-- 대출 기록. 누가 언제 왜 무엇을 꺼내 갔는지.
+--
+-- 이 표만 사람이 아니라 Claude의 행적을 적는다. "왜"는 검색어 그 자체다 —
+-- 이 코드는 LLM을 부르지 않으므로 의도를 물어볼 길이 없고, Claude가 어떤 말로
+-- 찾았는지가 의도에 가장 가까운 기록이다.
+--
+-- SCHEMA_VERSION 을 올리면 DB를 통째로 다시 만든다. 그때 이 기록도 같이 사라진다.
+-- 색인은 다시 만들면 그만이지만 기록은 복구할 수 없다. 스키마를 바꿀 일이 생기면
+-- 통째로 지우지 말고 이 표와 moves 는 옮겨야 한다.
+CREATE TABLE IF NOT EXISTS readings (
+    id         INTEGER PRIMARY KEY,
+    ts         TEXT NOT NULL,
+    client     TEXT NOT NULL DEFAULT '',   -- 누가 (Claude Desktop / Claude Code / 앱)
+    tool       TEXT NOT NULL,              -- 무엇을 했나 (search, get_document, ...)
+    query      TEXT NOT NULL DEFAULT '',   -- 왜 (검색어)
+    collection TEXT NOT NULL DEFAULT '',   -- 어느 책장에서
+    hits       INTEGER NOT NULL DEFAULT 0, -- 몇 건 건네줬나
+    docs       TEXT NOT NULL DEFAULT '',   -- 실제로 건넨 문서들 (줄바꿈 구분)
+    note       TEXT NOT NULL DEFAULT ''    -- 재검색 힌트. 이게 있으면 헛걸음이다
+);
+
+CREATE INDEX IF NOT EXISTS idx_readings_id ON readings(id DESC);
 """
 
 
