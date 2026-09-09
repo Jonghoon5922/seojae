@@ -62,11 +62,14 @@ Source: "..\dist\app\서재\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 ; Claude Desktop이 stdio로 대화하는 콘솔 실행 파일. 창 모드 exe로는 MCP를 띄울 수 없다.
 Source: "..\dist\app\서재\{#McpExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\dist\app\서재\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
+; README.md 는 넣지 않는다. .md 는 윈도우에 기본 뷰어가 없어서 "무엇으로 열까요"가
+; 뜨고, 내용도 개발자용이라 사용자가 볼 것이 아니다. 대신 메모장이 바로 여는 평문을 둔다.
+Source: "사용안내.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
+Name: "{group}\사용 안내"; Filename: "{app}\사용안내.txt"
 Name: "{group}\{cm:UninstallProgram,{#AppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 
@@ -89,6 +92,57 @@ Type: filesandordirs; Name: "{localappdata}\seojae"
   register 명령이 그 말을 출력하지만 runhidden 이라 아무도 못 본다.
   설치 중에 Claude Desktop이 켜져 있으면 설정 파일을 다시 읽지 않으므로,
   껐다 켜기 전까지는 도구가 안 붙는다. 그 말을 마지막 화면에서 한다. }
+
+{ 설치를 시작하기 전에 Claude Desktop 을 닫으라고 알린다.
+
+  켜져 있으면 seojae-mcp.exe 를 붙잡고 있어서 "파일을 사용 중" 화면이 뜬다.
+  자동 닫기를 골라도 Claude Desktop 이 몇 초 안에 다시 띄우므로 파일이 또 잠긴다.
+  실제로 그것 때문에 설치가 어정쩡하게 끝나고 연결 등록이 건너뛰어졌다. }
+function InitializeSetup(): Boolean;
+begin
+  Result := True;
+  if MsgBox(
+      '설치를 시작하기 전에' + #13#10 + #13#10 +
+      'Claude Desktop 이 켜져 있으면 먼저 완전히 종료해 주세요.' + #13#10 +
+      '(창만 닫지 말고 트레이 아이콘까지)' + #13#10 + #13#10 +
+      '켜져 있으면 서재 파일을 붙잡고 있어서 설치가 깨끗하게' + #13#10 +
+      '끝나지 않습니다. 서재 창도 닫아 주세요.' + #13#10 + #13#10 +
+      '닫으셨으면 [확인]을 누르세요.',
+      mbInformation, MB_OKCANCEL) = IDCANCEL then
+    Result := False;
+end;
+
+{ 설치가 끝나면 다음에 뭘 할지 팝업으로 알린다.
+  전에는 README.md 를 열려고 했는데, .md 는 윈도우에 기본 뷰어가 없어서
+  "무엇으로 열까요"가 떴다. }
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  NextSteps: String;  { Inno 의 Pascal 은 한글 변수명을 못 쓴다 }
+begin
+  if CurStep = ssPostInstall then
+  begin
+    if WizardIsTaskSelected('claudereg') then
+      NextSteps :=
+        '1. Claude Desktop 을 켜세요.' + #13#10 +
+        '   설치 중에 연결해 두었습니다.' + #13#10 + #13#10 +
+        '2. 이렇게 물어보세요:' + #13#10 +
+        '       "서재에 어떤 책장이 있어?"'
+    else
+      NextSteps :=
+        '1. 시작 메뉴에서 [서재]를 열고' + #13#10 +
+        '   설정 탭에서 Claude Desktop 에 연결하세요.' + #13#10 +
+        '   Cursor, VS Code 도 거기서 됩니다.' + #13#10 + #13#10 +
+        '2. 연결한 앱을 껐다 켜세요.';
+
+    MsgBox(
+      '서재를 설치했습니다.' + #13#10 + #13#10 +
+      NextSteps + #13#10 + #13#10 +
+      '문서는 [내 문서\서재] 에 넣으면 됩니다.' + #13#10 +
+      '주제별로 폴더를 만들면 그 폴더가 책장 하나가 됩니다.' + #13#10 + #13#10 +
+      '자세한 안내는 시작 메뉴의 [사용 안내] 에 있습니다.',
+      mbInformation, MB_OK);
+  end;
+end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
