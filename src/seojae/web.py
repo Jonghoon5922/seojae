@@ -332,11 +332,25 @@ def create_app(
             ],
         }
 
+    #: 이만큼은 검색해봐야 "안 나온 문서"가 뜻을 가진다. 3번 검색하고 나서
+    #: 576건 중 573건이 "안 나왔다"고 늘어놓는 것은 통찰이 아니라 소음이다.
+    ENOUGH_SEARCHES = 20
+
     @app.get("/api/readings/unread")
-    def api_unread(limit: int = 50) -> list[str]:
+    def api_unread(limit: int = 50) -> dict[str, Any]:
         """한 번도 꺼내진 적 없는 문서. 아무도 안 찾은 책이다."""
         with lock:
-            return ledger.unread_documents(conn, limit=limit)
+            paths = ledger.unread_documents(conn, limit=limit)
+            searches = ledger.summary(conn)["total"]
+            shelved = shelved_total(conn)
+        return {
+            "documents": paths,
+            "searches": searches,
+            # 기록이 적으면 목록이 사실상 전체 문서다. 그걸 말해준다.
+            "enough": searches >= ENOUGH_SEARCHES,
+            "needed": ENOUGH_SEARCHES,
+            "shelved": shelved,
+        }
 
     @app.post("/api/undo")
     def api_undo():

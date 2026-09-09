@@ -194,6 +194,16 @@
   .client .state.on { color: var(--ok); }
   .client .state.off { color: var(--dim); }
 
+  /* 세 갈래 전환. 탭처럼 보이되 화면 안의 작은 전환이다. */
+  .views { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+  .views .view {
+    background: none; border: none; border-bottom: 2px solid transparent;
+    padding: 7px 12px; font-size: 13px; color: var(--dim); cursor: pointer;
+    border-radius: 0; width: auto;
+  }
+  .views .view:hover { color: var(--ink); }
+  .views .view.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
   .welcome .no { color: var(--warn); }
   .welcome .yes { color: var(--ok); }
 </style>
@@ -204,13 +214,14 @@
   <h1>서재 <span id="shelfName" class="meta"></span></h1>
   <span class="meta" id="headMeta"></span>
   <span class="spacer"></span>
-  <button class="act ghost" id="reindexBtn">재색인</button>
+  <button class="act ghost" id="reindexBtn"
+    title="탐색기로 파일을 넣거나 고쳤는데 검색에 안 잡힐 때 누릅니다. 평소에는 자동으로 따라갑니다.">다시 읽기</button>
 </header>
 
 <nav>
   <button data-tab="search" class="on">검색</button>
   <button data-tab="shelves">책장</button>
-  <button data-tab="inbox">인박스<span class="badge" id="inboxBadge" hidden>0</span></button>
+  <button data-tab="inbox">미분류<span class="badge" id="inboxBadge" hidden>0</span></button>
   <button data-tab="moves">기록</button>
   <button data-tab="settings">설정</button>
 </nav>
@@ -372,14 +383,22 @@
 
     <!-- 대출 기록. 위와 달리 사람이 아니라 Claude의 행적이다. -->
     <div class="card" style="margin-top:14px">
-      <div class="row" style="margin-bottom:10px">
-        <h2 style="margin:0">꺼내 간 기록</h2>
-        <span class="spacer" style="flex:1"></span>
-        <label style="color:var(--dim);font-size:12px">
-          <input type="checkbox" id="missedOnly"> 헛걸음만
-        </label>
-        <button class="act ghost" id="unreadBtn">안 꺼내진 문서</button>
+      <div class="row" style="margin-bottom:4px">
+        <h2 style="margin:0">Claude가 꺼내 간 기록</h2>
       </div>
+      <p class="lead" style="margin:0 0 12px">
+        Claude가 <b>언제 · 어떤 말로 · 무엇을</b> 꺼내 갔는지입니다.
+        쌓이면 서재에 뭘 더 채우고 뭘 정리할지 알려줍니다.
+      </p>
+
+      <!-- 이름을 "무슨 데이터인지"가 아니라 "뭐에 쓰는지"로 붙인다.
+           "한 번도 안 나온 문서"는 읽어도 그래서 뭘 하라는 건지 알 수 없었다. -->
+      <div class="views" id="readingViews">
+        <button class="view on" data-view="all">전체 기록</button>
+        <button class="view" data-view="gaps">채울 거리</button>
+        <button class="view" data-view="dust">정리 후보</button>
+      </div>
+      <p class="lead" id="viewWhy" style="margin:8px 0 12px"></p>
       <div id="readingSummary" class="hint" style="margin-bottom:10px"></div>
       <div id="readingsList"></div>
     </div>
@@ -1038,23 +1057,47 @@ async function loadMoves() {
 // 위쪽 "옮긴 기록"은 내가 한 일, 이쪽은 Claude가 한 일이다.
 // "왜"는 검색어 그 자체다 — 이 앱은 LLM을 부르지 않으므로 의도를 물어볼 길이 없고,
 // 어떤 말로 찾았는지가 의도에 가장 가깝다.
+// ── Claude가 꺼내 간 기록 ────────────────────────────────────
+// 세 갈래를 **용도**로 이름 붙였다. "한 번도 안 나온 문서"라고 적어두면
+// 읽어도 그래서 뭘 하라는 건지 알 수 없다.
+//
+//   전체 기록  무슨 일이 있었나
+//   채울 거리  서재에 없는 주제 → 문서를 더 넣어라
+//   정리 후보  아무도 안 찾는 문서 → 빼도 된다
+const VIEW_WHY = {
+  all:  "Claude가 언제 · 어떤 말로 · 무엇을 꺼내 갔는지입니다.",
+  gaps: "이 서재가 쓰지 않는 말로 찾은 검색입니다. 결과는 나와도 답이 아닙니다. " +
+        "여기 쌓이는 주제가 <b>서재에 없는 것</b>입니다.",
+  dust: "꽂아뒀는데 검색 결과에 한 번도 안 나온 문서입니다. " +
+        "오래 안 나오면 <b>빼도 되는 문서</b>입니다.",
+};
+
+let readingView = "all";
+
 async function loadReadings() {
+  $("#viewWhy").innerHTML = VIEW_WHY[readingView];
+  for (const b of $("#readingViews").querySelectorAll(".view")) {
+    b.classList.toggle("on", b.dataset.view === readingView);
+  }
+  if (readingView === "dust") return loadDust();
+
   const box = $("#readingsList");
-  const only = $("#missedOnly").checked;
+  const only = readingView === "gaps";
   let data;
   try { data = await api("/api/readings?only_empty=" + (only ? "true" : "false")); }
   catch (e) { toast(e.message, true); return; }
 
   const s = data.summary;
   $("#readingSummary").textContent = s.total
-    ? `전체 ${s.total}회 · 헛걸음 ${s.empty}회 · ` +
+    ? `전체 ${s.total}회 · 채울 거리 ${s.empty}회 · ` +
       s.clients.map(c => `${c.name} ${c.count}회`).join(" · ")
     : "";
 
   box.innerHTML = "";
   if (!data.readings.length) {
-    box.appendChild(el("div", "empty",
-      only ? "헛걸음이 없습니다." : "아직 꺼내 간 기록이 없습니다."));
+    box.appendChild(el("div", "empty", only
+      ? "채울 거리가 없습니다. 서재의 어휘와 질문이 잘 맞고 있습니다."
+      : "아직 아무것도 안 꺼내 갔습니다. Claude에게 서재에서 뭔가 찾아달라고 해보세요."));
     return;
   }
 
@@ -1063,7 +1106,9 @@ async function loadReadings() {
   for (const r of data.readings) {
     const tr = el("tr");
     let why = esc(r.query || r.collection || "");
-    if (r.note) why += ` <span style="color:var(--warn,#b26b00)">헛걸음</span>`;
+    if (r.note) {
+      why += ` <span style="color:var(--warn,#b26b00)" title="${esc(r.note)}">채울 거리</span>`;
+    }
     if (r.docs.length) {
       why += `<br><span style="color:var(--dim);font-size:12px">${esc(r.docs.join(", "))}</span>`;
     }
@@ -1078,67 +1123,49 @@ async function loadReadings() {
   box.appendChild(t);
 }
 
-$("#missedOnly").addEventListener("change", loadReadings);
-
-$("#unreadBtn").onclick = async () => {
-  let never;
-  try { never = await api("/api/readings/unread"); }
-  catch (e) { toast(e.message, true); return; }
+async function loadDust() {
   const box = $("#readingsList");
-  box.innerHTML = "";
-  $("#readingSummary").textContent = never.length
-    ? `한 번도 꺼내진 적 없는 문서 ${never.length}건`
-    : "모든 문서가 한 번은 꺼내졌습니다.";
-  const t = el("table");
-  t.innerHTML = "<tr><th>문서</th></tr>";
-  for (const path of never) {
-    const tr = el("tr");
-    tr.innerHTML = `<td>${esc(path)}</td>`;
-    t.appendChild(tr);
-  }
-  if (never.length) box.appendChild(t);
-};
-
-// ── 설정 ────────────────────────────────────────────────────
-// ── 연결 목록 ────────────────────────────────────────────────
-// 첫 연결의 입구다. LLM에게 "서재 연결해줘"라고 시키려면 LLM이 먼저 서재를
-// 알아야 하는데, 연결 전에는 알 길이 없다 — 순환이다. 그래서 버튼이다.
-async function loadClients() {
-  const box = $("#clientList");
-  let rows;
-  try { rows = await api("/api/clients"); }
+  let data;
+  try { data = await api("/api/readings/unread"); }
   catch (e) { toast(e.message, true); return; }
 
   box.innerHTML = "";
-  for (const c of rows) {
-    const row = el("div", "client");
-    const who = el("div", "who");
-    who.innerHTML = `<b>${esc(c.label)}</b>` +
-      `<span class="where">${esc(c.path)}</span>`;
 
-    const state = el("span", "state " + (c.registered ? "on" : "off"));
-    state.textContent = c.registered ? "연결됨"
-      : c.exists ? "연결 안 됨" : "앱이 안 보임";
+  // 기록이 적으면 이 목록은 사실상 "서재 전체"다. 통찰이 아니라 소음이므로
+  // 늘어놓기 전에 그렇다고 말한다.
+  if (!data.enough) {
+    $("#readingSummary").innerHTML =
+      `아직 판단할 만큼 쓰지 않았습니다 — 검색 ${data.searches}회. ` +
+      `${data.needed}회쯤 넘어가면 정리 후보를 골라줍니다. ` +
+      `지금은 문서 ${data.shelved}건 중 거의 전부가 여기 들어갑니다.`;
+    box.appendChild(el("div", "empty",
+      "Claude에게 서재에서 몇 가지 찾아보게 한 뒤 다시 보세요."));
+    return;
+  }
 
-    const btn = el("button", "act" + (c.registered ? " ghost" : ""));
-    btn.textContent = c.registered ? "해제" : "연결";
-    btn.onclick = async () => {
-      btn.disabled = true;
-      try {
-        const r = await api("/api/clients/" + encodeURIComponent(c.name),
-          { method: c.registered ? "DELETE" : "POST" });
-        toast(c.registered ? `${c.label} 연결을 해제했습니다.`
-                           : `${c.label}에 연결했습니다. ${c.after}`);
-        loadClients();
-      } catch (e) { toast(e.message, true); btn.disabled = false; }
-    };
+  $("#readingSummary").textContent = data.documents.length
+    ? `한 번도 검색 결과에 안 나온 문서 ${data.documents.length}건 (문서 ${data.shelved}건 중)`
+    : "모든 문서가 한 번은 꺼내졌습니다. 정리할 것이 없습니다.";
 
-    row.appendChild(who);
-    row.appendChild(state);
-    row.appendChild(btn);
-    box.appendChild(row);
+  if (data.documents.length) {
+    const t = el("table");
+    t.innerHTML = "<tr><th>문서</th></tr>";
+    for (const path of data.documents) {
+      const tr = el("tr");
+      tr.innerHTML = `<td>${esc(path)}</td>`;
+      t.appendChild(tr);
+    }
+    box.appendChild(t);
   }
 }
+
+$("#readingViews").addEventListener("click", e => {
+  const b = e.target.closest(".view");
+  if (!b) return;
+  readingView = b.dataset.view;
+  loadReadings();
+});
+
 
 async function loadSettings() {
   let s;

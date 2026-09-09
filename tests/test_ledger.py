@@ -129,3 +129,35 @@ def test_무한정_쌓이지_않는다(conn, monkeypatch):
     assert 남은수 <= 15  # 가지치기 주기 때문에 정확히 10은 아니다
     # 최근 것은 살아 있어야 한다
     assert ledger.readings(conn, limit=1)[0].query == "검색39"
+
+
+class Test이름표를_읽을_때도_건다:
+    """이름표 규칙을 고치면 이미 쌓인 기록까지 같이 고쳐져야 한다.
+
+    Claude Desktop이 실제로 보낸 이름이 `local-agent-mode-seojae 1.0.0` 이었다.
+    기록에 그대로 찍혀서 "누가" 칸을 읽을 수 없었다.
+    """
+
+    def test_옛_기록도_읽을_때_고쳐진다(self, conn):
+        conn.execute(
+            "INSERT INTO readings(ts, client, tool, query) VALUES ('t', ?, 'search', 'x')",
+            ("local-agent-mode-seojae 1.0.0",),
+        )
+        conn.commit()
+        assert ledger.readings(conn)[0].client == "Claude Desktop"
+
+    def test_요약에서도_합쳐진다(self, conn):
+        """원본 이름이 달라도 같은 이름표면 한 줄로 합쳐야 한다."""
+        for raw in ("local-agent-mode-seojae 1.0.0", "local-agent-mode-other 2.0"):
+            conn.execute(
+                "INSERT INTO readings(ts, client, tool, query) VALUES ('t', ?, 'search', 'x')",
+                (raw,),
+            )
+        conn.commit()
+
+        clients = ledger.summary(conn)["clients"]
+        assert clients == [{"name": "Claude Desktop", "count": 2}]
+
+    def test_이미_예쁜_값은_그대로_둔다(self, conn):
+        ledger.record(conn, tool="search", client="Claude Code", query="x")
+        assert ledger.readings(conn)[0].client == "Claude Code"

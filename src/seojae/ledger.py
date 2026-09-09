@@ -41,6 +41,11 @@ _CLIENT_LABELS = {
     "continue": "Continue",
 }
 
+#: Claude Desktop이 실제로 보내는 이름이 `local-agent-mode-<서버이름>` 이었다.
+#: 실측으로 확인했다 — 기록에 `local-agent-mode-seojae 1.0.0` 이 그대로 찍혔다.
+#: 붙어 오는 버전(1.0.0)은 앱 버전이 아니라 의미가 없으므로 버린다.
+_AGENT_PREFIX = "local-agent-mode-"
+
 UNKNOWN_CLIENT = "알 수 없음"
 APP_CLIENT = "앱"
 
@@ -59,10 +64,20 @@ class Reading:
 
 
 def label_client(name: str | None, version: str | None = None) -> str:
-    """클라이언트가 밝힌 이름을 사람이 읽을 이름으로."""
+    """클라이언트가 밝힌 이름을 사람이 읽을 이름으로.
+
+    기록의 "누가" 칸에 그대로 나가므로 읽을 수 있어야 한다.
+    `local-agent-mode-seojae 1.0.0` 같은 것이 그대로 찍히면 사람이 못 읽는다.
+    """
     if not name:
         return UNKNOWN_CLIENT
-    label = _CLIENT_LABELS.get(name.lower(), name)
+
+    lowered = name.lower()
+    if lowered.startswith(_AGENT_PREFIX):
+        # 서버 이름이 뒤에 붙어 오지만 그건 우리 자신이라 정보가 없다.
+        return "Claude Desktop"
+
+    label = _CLIENT_LABELS.get(lowered, name)
     return f"{label} {version}" if version else label
 
 
@@ -112,7 +127,9 @@ def _row(row: sqlite3.Row) -> Reading:
     return Reading(
         id=row["id"],
         ts=row["ts"],
-        client=row["client"],
+        # 읽을 때도 이름표를 다시 건다. 그래야 이름표 규칙을 고쳤을 때
+        # 이미 쌓인 기록까지 같이 고쳐진다. 이미 예쁜 값에는 아무 일도 안 한다.
+        client=label_client(row["client"]),
         tool=row["tool"],
         query=row["query"],
         collection=row["collection"],
@@ -164,12 +181,18 @@ def summary(conn: sqlite3.Connection) -> dict:
         f"SUM(CASE WHEN {_WASTED} THEN 1 ELSE 0 END) AS empty, "
         "MIN(ts) AS since FROM readings"
     ).fetchone()
-    clients = conn.execute(
-        "SELECT client, COUNT(*) AS n FROM readings GROUP BY client ORDER BY n DESC"
+    rows = conn.execute(
+        "SELECT client, COUNT(*) AS n FROM readings GROUP BY client"
     ).fetchall()
+    # 이름표를 다시 걸면 서로 다른 원본 이름이 같은 이름으로 합쳐질 수 있다.
+    merged: dict[str, int] = {}
+    for r in rows:
+        name = label_client(r["client"])
+        merged[name] = merged.get(name, 0) + r["n"]
+    clients = sorted(merged.items(), key=lambda kv: kv[1], reverse=True)
     return {
         "total": row["total"] or 0,
         "empty": row["empty"] or 0,
         "since": row["since"] or "",
-        "clients": [{"name": c["client"], "count": c["n"]} for c in clients],
+        "clients": [{"name": n, "count": c} for n, c in clients],
     }
