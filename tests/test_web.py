@@ -341,12 +341,12 @@ def test_import_into_inbox(client) -> None:
     c, shelf, _ = client
     res = c.post(
         "/api/import",
-        data={"collection": "_inbox"},
+        data={"collection": INBOX_DIRNAME},
         files={"files": ("아무거나.md", "# 메모\n사바티컬 검토.\n", "text/markdown")},
     )
 
     assert res.status_code == 200
-    assert (shelf / "_inbox" / "아무거나.md").is_file()
+    assert (shelf / INBOX_DIRNAME / "아무거나.md").is_file()
     assert c.get("/api/status").json()["inbox_count"] == 2
 
 
@@ -454,3 +454,76 @@ def test_no_origin_is_allowed(client) -> None:
     """curl 처럼 Origin 이 없는 요청은 사용자 본인의 도구로 본다."""
     c, _, _ = client
     assert c.get("/api/status").status_code == 200
+
+
+# ── 설정 ──────────────────────────────────────────────────────────────────
+
+
+def test_settings_shows_root_and_formats(client) -> None:
+    c, shelf, _ = client
+    data = c.get("/api/settings").json()
+
+    assert data["root"] == str(shelf)
+    assert data["inbox_dirname"] == INBOX_DIRNAME
+    assert data["version"]
+    assert any(f["label"] == "Excel 문서" for f in data["formats"])
+    assert data["can_change_root"] is False  # 브라우저 모드에서는 못 바꾼다
+
+
+def test_settings_root_change_refused_in_browser_mode(client) -> None:
+    c, shelf, _ = client
+    res = c.post("/api/settings/root", json={"root": str(shelf.parent / "다른서재")})
+    assert res.status_code == 400
+    assert "앱" in res.json()["error"]
+
+
+@pytest.fixture
+def app_client(shelf: Path, tmp_path: Path, monkeypatch):
+    """앱 모드 — 서재 폴더를 바꿀 수 있다. 설정 파일은 임시 폴더로 돌린다."""
+    from seojae import appconfig
+
+    monkeypatch.setattr(appconfig, "app_data_dir", lambda: tmp_path / "appdata")
+    (tmp_path / "appdata").mkdir(exist_ok=True)
+
+    conn = open_db(shelf, check_same_thread=False)
+    index_root(shelf, conn)
+    app = create_app(shelf, conn, threading.Lock(), allow_root_change=True)
+    with TestClient(app) as c:
+        yield c, shelf, tmp_path
+    conn.close()
+
+
+def test_settings_change_root(app_client) -> None:
+    c, _, tmp_path = app_client
+    target = tmp_path / "새서재"
+    target.mkdir()
+
+    res = c.post("/api/settings/root", json={"root": str(target)})
+
+    assert res.status_code == 200
+    assert res.json()["root"] == str(target)
+    assert "껐다 켜" in res.json()["note"]  # 재시작해야 적용된다고 알린다
+
+    from seojae.appconfig import read_root
+    assert read_root() == target
+
+
+def test_settings_creates_folder_when_asked(app_client) -> None:
+    c, _, tmp_path = app_client
+    target = tmp_path / "없던서재"
+
+    refused = c.post("/api/settings/root", json={"root": str(target)})
+    assert refused.status_code == 400
+    assert not target.exists()
+
+    made = c.post("/api/settings/root", json={"root": str(target), "create": True})
+    assert made.status_code == 200
+    assert made.json()["created"] is True
+    assert target.is_dir()
+
+
+def test_settings_rejects_relative_path(app_client) -> None:
+    c, _, _ = app_client
+    res = c.post("/api/settings/root", json={"root": "내서재"})
+    assert res.status_code == 400
+    assert "전체 경로" in res.json()["error"]

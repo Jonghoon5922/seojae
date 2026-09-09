@@ -144,7 +144,7 @@ def test_file_document_creates_collection_when_allowed(shelf_db) -> None:
 
 @pytest.mark.parametrize(
     "bad",
-    ["..", "../바깥", "..\\바깥", "업무규정/하위", "_inbox", ".seojae", ".숨김", "  "],
+    ["..", "../바깥", "..\\바깥", "업무규정/하위", INBOX_DIRNAME, ".seojae", ".숨김", "  "],
 )
 def test_file_document_rejects_unsafe_collection(shelf_db, bad: str) -> None:
     root, conn = shelf_db
@@ -400,7 +400,7 @@ def test_create_collection_rejects_duplicate(shelf_db) -> None:
         create_collection(conn, root, "업무규정")
 
 
-@pytest.mark.parametrize("bad", ["..", "하위/폴더", "_inbox", ".숨김", "  "])
+@pytest.mark.parametrize("bad", ["..", "하위/폴더", INBOX_DIRNAME, ".숨김", "  "])
 def test_create_collection_rejects_unsafe(shelf_db, bad: str) -> None:
     root, conn = shelf_db
     with pytest.raises((OrganizeError, OutsideRootError)):

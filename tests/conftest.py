@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from seojae.paths import INBOX_DIRNAME
+
 README = """---
 name: 업무규정
 description: 회사 취업규칙과 경비 지침. 휴가, 출장비, 근무시간 질문에 사용.
@@ -45,7 +47,7 @@ def shelf(tmp_path: Path) -> Path:
     (rules / "휴가규정.md").write_text(VACATION, encoding="utf-8")
     (rules / "출장지침.md").write_text(TRAVEL, encoding="utf-8")
 
-    inbox = tmp_path / "_inbox"
+    inbox = tmp_path / INBOX_DIRNAME
     inbox.mkdir()
     (inbox / "미분류메모.md").write_text("# 정리 안 된 메모\n연차 관련 낙서.\n", encoding="utf-8")
 

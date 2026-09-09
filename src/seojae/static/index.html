@@ -173,6 +173,7 @@
   <button data-tab="shelves">책장</button>
   <button data-tab="inbox">인박스<span class="badge" id="inboxBadge" hidden>0</span></button>
   <button data-tab="moves">기록</button>
+  <button data-tab="settings">설정</button>
 </nav>
 
 <main>
@@ -235,6 +236,36 @@
         <h2>분류하지 않은 파일</h2>
         <div id="inboxList"></div>
       </div>
+    </div>
+  </section>
+
+  <!-- ── 설정 ─────────────────────────────────────────────── -->
+  <section id="tab-settings" hidden>
+    <div class="card">
+      <h2>서재 폴더</h2>
+      <div class="field">
+        <label>지금 열려 있는 서재</label>
+        <input type="text" id="setRoot" spellcheck="false">
+        <small id="setRootHelp"></small>
+      </div>
+      <div class="row">
+        <label style="font-size:13px;color:var(--dim)">
+          <input type="checkbox" id="setCreate" style="width:auto;vertical-align:-2px"> 폴더가 없으면 만들기
+        </label>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="act" id="setRootSave">서재 폴더 바꾸기</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>읽을 수 있는 형식</h2>
+      <div id="setFormats"></div>
+    </div>
+
+    <div class="card">
+      <h2>이 앱에 대하여</h2>
+      <table id="setAbout"></table>
     </div>
   </section>
 
@@ -863,12 +894,67 @@ async function loadMoves() {
   box.appendChild(t);
 }
 
+// ── 설정 ────────────────────────────────────────────────────
+async function loadSettings() {
+  let s;
+  try { s = await api("/api/settings"); }
+  catch (e) { toast(e.message, true); return; }
+
+  $("#setRoot").value = s.root;
+  $("#setRoot").disabled = !s.can_change_root;
+  $("#setRootSave").disabled = !s.can_change_root;
+  $("#setRootHelp").textContent = s.can_change_root
+    ? `이 폴더 바깥은 절대 읽지 않습니다. 바꾸면 앱을 껐다 켜야 적용됩니다. 분류 전 파일은 ${s.inbox_dirname}\\ 에 넣습니다.`
+    : "브라우저로 열었을 때는 바꿀 수 없습니다. 앱으로 실행하면 여기서 바꿀 수 있습니다.";
+
+  const formats = $("#setFormats");
+  formats.innerHTML = "";
+  const t = el("table");
+  for (const f of s.formats) {
+    const tr = el("tr");
+    tr.innerHTML = `<td style="white-space:nowrap">${esc(f.label)}</td>` +
+      `<td style="color:var(--dim)">${esc(f.extensions)}</td>`;
+    t.appendChild(tr);
+  }
+  formats.appendChild(t);
+
+  const about = $("#setAbout");
+  about.innerHTML = "";
+  for (const [k, v] of [
+    ["버전", s.version],
+    ["설정 파일", s.config_file],
+    ["기록(로그)", s.log_file],
+  ]) {
+    if (!v) continue;
+    const tr = el("tr");
+    tr.innerHTML = `<td style="white-space:nowrap">${esc(k)}</td>` +
+      `<td style="color:var(--dim);word-break:break-all">${esc(v)}</td>`;
+    about.appendChild(tr);
+  }
+}
+
+$("#setRootSave").onclick = async (e) => {
+  const value = $("#setRoot").value.trim();
+  if (!value) { toast("경로를 입력하세요.", true); return; }
+  e.target.disabled = true;
+  try {
+    const r = await api("/api/settings/root", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ root: value, create: $("#setCreate").checked }),
+    });
+    toast(`${r.root}${r.created ? " (새로 만듦)" : ""} · ${r.note}`);
+  } catch (err) { toast(err.message, true); }
+  e.target.disabled = false;
+};
+
 // ── 탭 ──────────────────────────────────────────────────────
 const loaders = {
   search: loadStatus,
   shelves: loadShelves,
   inbox: loadInbox,
   moves: loadMoves,
+  settings: loadSettings,
 };
 
 document.querySelectorAll("nav button").forEach(b => {

@@ -96,7 +96,9 @@ def run(
     chosen = port or find_port()
     server = uvicorn.Server(
         uvicorn.Config(
-            create_app(root, conn, lock),
+            # 앱으로 켰을 때만 서재 폴더를 바꿀 수 있다.
+            # CLI(`seojae ui <폴더>`)는 경로를 인자로 받으므로 설정을 바꿔도 소용없다.
+            create_app(root, conn, lock, allow_root_change=True),
             host="127.0.0.1",  # 네트워크에 열지 않는다
             port=chosen,
             log_level="warning",

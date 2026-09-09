@@ -319,9 +319,9 @@ def _index_file(
 
 
 def collection_of(root: Path, path: Path) -> tuple[str, bool]:
-    """파일이 어느 책장에 속하는지. (컬렉션명, 인박스인가)
+    """파일이 어느 책장에 속하는지. (컬렉션명, 미분류인가)
 
-    루트 직속 파일과 _inbox\\ 아래는 전부 미분류로 본다 (SPEC 3절).
+    루트 직속 파일과 미분류 폴더 아래는 전부 미분류로 본다 (SPEC 3절).
     """
     parts = Path(rel(root, path)).parts
     if len(parts) == 1 or parts[0] == INBOX_DIRNAME:

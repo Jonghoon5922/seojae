@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 from pathlib import Path
@@ -23,8 +24,9 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from . import __version__, organize
+from .appconfig import config_path, log_path, write_root
 from .index import index_root, last_indexed_at
-from .paths import OutsideRootError
+from .paths import INBOX_DIRNAME, OutsideRootError
 from .search import (
     document_total,
     failed_documents,
@@ -62,6 +64,11 @@ class RenameCollectionRequest(BaseModel):
     name: str
 
 
+class SetRootRequest(BaseModel):
+    root: str
+    create: bool = False
+
+
 def _is_local_origin(origin: str) -> bool:
     """127.0.0.1 / localhost 에서 온 요청인가."""
     try:
@@ -71,7 +78,12 @@ def _is_local_origin(origin: str) -> bool:
     return host in {"127.0.0.1", "localhost", "::1"}
 
 
-def create_app(root: Path, conn: sqlite3.Connection, lock: threading.Lock) -> FastAPI:
+def create_app(
+    root: Path,
+    conn: sqlite3.Connection,
+    lock: threading.Lock,
+    allow_root_change: bool = False,
+) -> FastAPI:
     app = FastAPI(title=f"서재 — {root.name}", version=__version__, docs_url=None, redoc_url=None)
 
     @app.middleware("http")
@@ -333,6 +345,58 @@ def create_app(root: Path, conn: sqlite3.Connection, lock: threading.Lock) -> Fa
         except (organize.OrganizeError, OutsideRootError) as e:
             return fail(str(e))
         return {"deleted": collection}
+
+    @app.get("/api/settings")
+    def api_settings() -> dict[str, Any]:
+        """설정 화면이 보여줄 것들. 앱으로 켰을 때만 서재 폴더를 바꿀 수 있다."""
+        from .parsers import describe_formats
+
+        return {
+            "root": str(root),
+            "version": __version__,
+            "config_file": str(config_path()),
+            "log_file": str(log_path()),
+            "can_change_root": allow_root_change,
+            "formats": [{"label": label, "extensions": exts} for label, exts in describe_formats()],
+            "inbox_dirname": INBOX_DIRNAME,
+        }
+
+    @app.post("/api/settings/root")
+    def api_set_root(req: SetRootRequest):
+        """서재 폴더를 바꾼다. 실제 전환은 앱을 다시 켤 때 일어난다.
+
+        지금 프로세스는 이미 그 폴더로 색인·감시를 붙들고 있어서, 도중에 갈아끼우면
+        상태가 어긋난다. 설정만 바꾸고 재시작을 안내하는 편이 정직하다.
+        """
+        if not allow_root_change:
+            return fail("이 방식으로는 서재 폴더를 바꿀 수 없다. 앱(seojae app)으로 실행하라.")
+
+        target = Path(req.root).expanduser()
+        if not target.is_absolute():
+            return fail("전체 경로를 입력하라 (예: D:\\자료\\내서재).")
+        if target.is_file():
+            return fail(f"폴더가 아니다: {target}")
+
+        created = False
+        if not target.exists():
+            if not req.create:
+                return fail(f"그런 폴더가 없다: {target}\n새로 만들려면 '없으면 만들기'를 켜라.")
+            try:
+                target.mkdir(parents=True)
+                created = True
+            except OSError as e:
+                return fail(f"폴더를 만들지 못했다: {e}")
+
+        try:
+            write_root(target)
+        except OSError as e:
+            return fail(f"설정을 저장하지 못했다: {e}")
+
+        return {
+            "root": str(target),
+            "created": created,
+            "note": "앱을 껐다 켜면 이 서재로 열립니다.",
+        }
 
     @app.post("/api/reindex")
     def api_reindex() -> dict[str, Any]:

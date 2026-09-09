@@ -11,7 +11,9 @@ from typing import Iterator
 
 from .parsers import SUPPORTED_EXTS  # noqa: F401  (등록기가 유일한 출처다)
 
-INBOX_DIRNAME = "_inbox"
+#: 미분류 투입구. 밑줄을 붙여 탐색기에서 책장들 위에 고정되게 한다.
+INBOX_DIRNAME = "_미분류"
+
 DATA_DIRNAME = ".seojae"
 DB_FILENAME = "index.db"
 
@@ -124,7 +126,7 @@ def rel(root: Path, path: Path) -> str:
 
 
 def inbox_files(root: Path) -> list[Path]:
-    """미분류 파일: _inbox 아래 전부 + 루트 직속 파일."""
+    """미분류 파일: 미분류 폴더 아래 전부 + 루트 직속 파일."""
     files = list(walk_files(inbox_dir(root), root))
     for p in sorted(root.iterdir()):
         if p.is_file() and not is_hidden(p) and p.suffix.lower() in SUPPORTED_EXTS:

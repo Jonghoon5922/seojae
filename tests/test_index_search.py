@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from seojae.index import index_root, last_indexed_at, open_db
+from seojae.paths import INBOX_DIRNAME
 from seojae.search import get_document, list_collections, list_documents, search
 from seojae.tokenizer import build_match_query, tokenize
 
@@ -82,10 +83,10 @@ def test_search_returns_source(conn) -> None:
 
 def test_search_excludes_inbox_by_default(conn) -> None:
     hits = search(conn, "연차", top_k=10)
-    assert all("_inbox" not in h.source for h in hits)
+    assert all(INBOX_DIRNAME not in h.source for h in hits)
 
     with_inbox = search(conn, "연차", top_k=10, include_inbox=True)
-    assert any("_inbox" in h.source for h in with_inbox)
+    assert any(INBOX_DIRNAME in h.source for h in with_inbox)
 
 
 def test_search_filters_by_collection(conn) -> None:
@@ -115,10 +116,10 @@ def test_search_empty_query(conn) -> None:
 def test_list_collections(conn) -> None:
     names = {c.dirname for c in list_collections(conn)}
     assert "업무규정" in names
-    assert "_inbox" in names
+    assert INBOX_DIRNAME in names
 
     without = {c.dirname for c in list_collections(conn, include_inbox=False)}
-    assert "_inbox" not in without
+    assert INBOX_DIRNAME not in without
 
 
 def test_get_document_sections(conn) -> None:
