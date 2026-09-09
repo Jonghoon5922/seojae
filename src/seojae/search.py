@@ -343,6 +343,20 @@ def unmatched_terms(
     return [t for t, n in term_document_counts(conn, query, collection).items() if n == 0]
 
 
+def shelved_total(conn: sqlite3.Connection) -> int:
+    """책장에 실제로 꽂힌 문서 수.
+
+    미분류와 README는 뺀다. 첫 실행에 만들어지는 골격(`예시책장/README.md`,
+    `_미분류/여기에-던져두세요.txt`)이 여기 잡히면 빈 서재가 "문서 2건"으로 보인다.
+    이 숫자가 0이면 아직 아무것도 안 꽂힌 서재다.
+    """
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM documents "
+        "WHERE status = 'ok' AND is_inbox = 0 AND is_readme = 0"
+    ).fetchone()
+    return row["n"] if row else 0
+
+
 def document_total(conn: sqlite3.Connection, collection: str | None = None) -> int:
     """색인이 끝난 문서 수. 검색어 빈도를 해석할 때 분모가 된다."""
     sql = "SELECT COUNT(*) AS n FROM documents WHERE status = 'ok'"

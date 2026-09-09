@@ -157,6 +157,30 @@
   .doc .loc-toggle:hover { background: var(--accent-soft); }
   .doc .caret { display: inline-block; width: 14px; color: var(--dim); }
   .doc pre { margin: 2px 0 0 18px; white-space: pre-wrap; word-break: break-word; font: inherit; }
+
+  /* ── 첫 실행 안내 ─────────────────────────────────────
+     빈 서재를 처음 열었을 때만 보인다. 문서가 꽂히면 사라진다. */
+  .welcome { border-color: var(--accent); margin-bottom: 14px; }
+  .welcome .lead { margin: 0 0 14px; color: var(--dim); }
+  .welcome .steps { margin: 0; padding-left: 22px; }
+  .welcome .steps > li { margin-bottom: 16px; }
+  .welcome .steps > li:last-child { margin-bottom: 0; }
+  .welcome .how { color: var(--dim); font-size: 13px; margin: 3px 0 8px; line-height: 1.6; }
+  .welcome code.path {
+    display: inline-block; margin-left: 8px; font-size: 12px; color: var(--dim);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 3px 7px;
+  }
+  .welcome .asks { display: flex; flex-wrap: wrap; gap: 6px; }
+  .welcome .asks span {
+    background: var(--accent-soft); border-radius: 999px; padding: 4px 11px;
+    font-size: 12px; color: var(--accent);
+  }
+  .welcome .foot {
+    margin: 16px 0 0; padding-top: 12px; border-top: 1px solid var(--line);
+    font-size: 12px; color: var(--dim);
+  }
+  .welcome .no { color: var(--warn); }
+  .welcome .yes { color: var(--ok); }
 </style>
 </head>
 <body>
@@ -179,6 +203,45 @@
 <main>
   <!-- ── 검색 ─────────────────────────────────────────────── -->
   <section id="tab-search">
+    <!-- 첫 실행 안내. 책장에 문서가 하나라도 꽂히면 저절로 사라진다.
+         "다시 보지 않기" 체크박스를 두지 않은 이유가 그것이다 — 끌 필요가 없다. -->
+    <div class="card welcome" id="welcome" hidden>
+      <h2 style="margin:0 0 4px">아직 꽂힌 문서가 없습니다</h2>
+      <p class="lead">폴더 하나가 책장 하나입니다. 문서를 넣으면 Claude가 꺼내 읽습니다.</p>
+
+      <ol class="steps">
+        <li>
+          <b>서재 폴더에 문서를 넣으세요</b>
+          <div class="how">
+            주제별로 폴더를 만들고 그 안에 넣으면 됩니다. 폴더 이름이 책장 이름이 됩니다.
+            한글·PDF·Word·Excel·PowerPoint·소스코드 등 <span id="wFormats">여러 형식을</span> 읽습니다.
+          </div>
+          <button class="act" id="wOpenRoot">서재 폴더 열기</button>
+          <code class="path" id="wRoot"></code>
+        </li>
+        <li>
+          <b>분류가 애매하면 <span id="wInbox">_미분류</span>에 던져두세요</b>
+          <div class="how">
+            Claude에게 "미분류 정리해줘"라고 하면 내용을 읽고 알맞은 책장으로 옮깁니다.
+            옮긴 것은 기록에 남고 언제든 되돌릴 수 있습니다.
+          </div>
+        </li>
+        <li>
+          <b>Claude에게 물어보세요</b>
+          <div class="how" id="wClaude"></div>
+          <div class="asks">
+            <span>서재에 어떤 책장이 있어?</span>
+            <span>○○에 대해 서재에서 찾아줘</span>
+            <span>미분류 정리해줘</span>
+          </div>
+        </li>
+      </ol>
+
+      <p class="foot">
+        문서는 이 PC를 떠나지 않습니다. 지정한 폴더 바깥은 읽지도 쓰지도 않습니다.
+      </p>
+    </div>
+
     <div class="layout">
       <aside>
         <div class="card">
@@ -341,6 +404,8 @@ async function loadStatus() {
     box.appendChild(shelfButton(c.name, c.name, c.doc_count, c.description));
   }
 
+  renderWelcome(s);
+
   const failed = $("#failedCard");
   failed.hidden = s.failed.length === 0;
   if (s.failed.length) {
@@ -349,6 +414,36 @@ async function loadStatus() {
       .join("<hr style='border:none;border-top:1px solid var(--line);margin:6px 0'>");
   }
 }
+
+// ── 첫 실행 안내 ─────────────────────────────────────────────
+// 책장에 문서가 하나라도 꽂히면 사라진다. 그래서 "다시 보지 않기"가 없다.
+// shelved_count 는 미분류와 README를 뺀 수다 — 첫 실행에 만들어지는 골격이
+// "문서 2건"으로 잡혀서 안내가 바로 사라지면 안 되니까.
+function renderWelcome(s) {
+  const box = $("#welcome");
+  box.hidden = s.shelved_count > 0;
+  if (box.hidden) return;
+
+  $("#wRoot").textContent = s.root;
+  $("#wInbox").textContent = s.inbox_dirname || "_미분류";
+  // 조사는 여기서 붙인다. "확장자 60개를" / "여러 형식을" — 값에 따라 갈린다.
+  $("#wFormats").textContent = s.format_count
+    ? `${s.format_count}종, 확장자 ${s.extension_count}개를`
+    : "여러 형식을";
+
+  // Claude가 붙어 있는지. 안 붙어 있으면 뭘 해야 하는지까지 말해준다.
+  $("#wClaude").innerHTML = s.claude_registered
+    ? `<span class="yes">Claude Desktop에 연결되어 있습니다.</span> 이렇게 물어보세요:`
+    : `<span class="no">Claude Desktop에 아직 연결되지 않았습니다.</span> ` +
+      `설치 프로그램을 다시 실행해 "Claude Desktop에 서재를 등록합니다"를 켜거나, ` +
+      `설치 폴더의 <code>seojae-mcp.exe register</code> 를 실행하세요. ` +
+      `연결되면 이렇게 물어볼 수 있습니다:`;
+}
+
+$("#wOpenRoot").onclick = async () => {
+  try { await api("/api/open-root", { method: "POST" }); }
+  catch (e) { toast(e.message, true); }
+};
 
 function shelfButton(name, label, count, desc) {
   const b = el("button", "shelf" + (state.collection === name ? " on" : ""));

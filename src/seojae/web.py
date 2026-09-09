@@ -13,7 +13,10 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import subprocess
+import sys
 import threading
 from pathlib import Path
 from typing import Any
@@ -25,7 +28,9 @@ from pydantic import BaseModel
 
 from . import __version__, ledger, organize
 from .appconfig import config_path, log_path, write_root
+from .desktop_config import registered_command
 from .index import index_root, last_indexed_at
+from .parsers import describe_formats, supported_extensions
 from .paths import INBOX_DIRNAME, OutsideRootError
 from .search import (
     document_total,
@@ -35,6 +40,7 @@ from .search import (
     list_documents,
     search,
     search_hint,
+    shelved_total,
     term_document_counts,
 )
 
@@ -76,6 +82,21 @@ def _is_local_origin(origin: str) -> bool:
     except ValueError:
         return False
     return host in {"127.0.0.1", "localhost", "::1"}
+
+
+def _open_in_file_manager(folder: Path) -> None:
+    """탐색기(Finder, 파일 관리자)에서 폴더를 연다.
+
+    **호출부가 경로를 정하지 않는다.** 이 함수는 web.py 안에서 서재 루트로만
+    불린다. 사용자가 준 경로를 여기로 흘리면 로컬 서버가 아무 폴더나 여는
+    수단이 된다.
+    """
+    if sys.platform == "win32":
+        os.startfile(folder)  # noqa: S606 — 폴더를 여는 것뿐이다
+    elif sys.platform == "darwin":
+        subprocess.run(["open", str(folder)], check=True)
+    else:
+        subprocess.run(["xdg-open", str(folder)], check=True)
 
 
 def create_app(
@@ -128,7 +149,16 @@ def create_app(
                 "version": __version__,
                 "last_indexed_at": last_indexed_at(conn),
                 "document_count": document_total(conn),
+                # 미분류·README를 뺀 수. 0이면 아직 아무것도 안 꽂힌 서재다.
+                # 첫 실행 안내를 띄울지 여기서 판단한다.
+                "shelved_count": shelved_total(conn),
                 "inbox_count": organize.inbox_count(conn),
+                "claude_registered": registered_command() is not None,
+                # 첫 실행 안내가 쓰는 값들. 숫자를 화면에 적어두면 어긋나므로
+                # 등록기에서 그때그때 센다.
+                "inbox_dirname": INBOX_DIRNAME,
+                "format_count": len(describe_formats()),
+                "extension_count": len(supported_extensions()),
                 "collections": [
                     {
                         "name": c.dirname,
@@ -385,6 +415,21 @@ def create_app(
         except (organize.OrganizeError, OutsideRootError) as e:
             return fail(str(e))
         return {"deleted": collection}
+
+    @app.post("/api/open-root")
+    def api_open_root():
+        """탐색기에서 서재 폴더를 연다.
+
+        첫 실행에 제일 필요한 동작이다. "여기에 파일을 넣으세요"라고 말만 하고
+        어디인지 안 열어주면 경로를 복사해서 붙여넣어야 한다.
+
+        경로를 인자로 받지 않는다. 언제나 이 서재의 루트만 연다.
+        """
+        try:
+            _open_in_file_manager(root)
+        except OSError as e:
+            return fail(f"폴더를 열지 못했다: {e}")
+        return {"opened": str(root)}
 
     @app.get("/api/settings")
     def api_settings() -> dict[str, Any]:
