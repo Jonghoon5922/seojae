@@ -1,6 +1,6 @@
 [project]
 name = "seojae-mcp"
-version = "0.1.0"
+dynamic = ["version"]
 description = "폴더에 문서를 꽂아두면 Claude가 꺼내 읽는 로컬 RAG MCP 서버 (한국어 형태소 검색)"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -55,6 +55,10 @@ seojae-mcp = "seojae.cli:app"
 
 [dependency-groups]
 dev = ["pytest>=8.3"]
+
+# 버전은 src/seojae/__init__.py 한 곳에만 있다. 여기서 읽으므로 어긋날 수 없다.
+[tool.hatch.version]
+path = "src/seojae/__init__.py"
 
 [build-system]
 requires = ["hatchling"]

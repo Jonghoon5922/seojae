@@ -34,6 +34,8 @@ Python 3.11+, uv, FastMCP, SQLite FTS5, kiwipiepy, pypdf, python-docx, watchdog,
 - [x] 5단계: 웹 UI (검색·문서보기·인박스·기록, 브라우저 실동작 확인)
 - [x] 6단계 배포: PyPI `seojae-mcp` 공개 (uvx 설치 확인)
 - [x] 6단계 `.mcpb` 번들 (binary+uvx, 6KB, 실행 경로 검증)
+- [x] 인스톨러가 Claude Desktop 자동 등록 (uvx 의존 제거, 실행 파일 2개)
+- [x] 대출 기록 (누가·언제·왜, 헛걸음 판정 실측)
 - [ ] 6단계 나머지: 로컬 임베딩 (선택)
 
 단계를 끝내면 위 체크박스를 갱신한다.

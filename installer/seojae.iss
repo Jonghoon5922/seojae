@@ -9,7 +9,7 @@
 
 #define AppName "서재"
 #define AppNameEn "Seojae"
-#define AppVersion "0.1.0"
+#define AppVersion "0.2.0"
 #define AppPublisher "Jonghoon5922"
 #define AppURL "https://github.com/Jonghoon5922/seojae"
 #define AppExe "서재.exe"

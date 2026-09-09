@@ -351,7 +351,7 @@ PyPI 패키지 [`seojae-mcp`](https://pypi.org/project/seojae-mcp/) 공개 (2026
 `uvx --from dist\seojae_mcp-0.1.0-py3-none-any.whl seojae-mcp ...` 로 확인:
 
 - `init` / `reindex` / `status` / `search` / `inbox` 정상
-- MCP 서버 기동, 도구 8개 노출, instructions 주입, 검색 출처 반환
+- MCP 서버 기동, 도구 노출, instructions 주입, 검색 출처 반환
 - 웹 UI 200 OK — 패키지에 포함된 `static\index.html` 서빙 확인
 - **127.0.0.1 전용 바인딩 확인** — 외부 IP로는 접속 거부
 
@@ -401,7 +401,7 @@ macOS는 GUI 앱이 셸 PATH를 물려받지 않아 `curl | sh` 설치(`~/.local
 
 매니페스트의 `mcp_config`를 그대로 읽어 프로세스를 띄우고 확인했다.
 
-- 도구 8개 노출, **매니페스트에 선언한 목록과 실제가 일치**
+- 도구 노출, **매니페스트에 선언한 목록과 실제가 일치**
 - 검색 결과에 출처 반환
 - 압축 내부 구조 확인 (`pack` 출력의 `..\` 접두사는 표시상의 문제였고 파일은 루트에 정상 배치)
 
