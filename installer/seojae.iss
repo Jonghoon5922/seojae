@@ -81,3 +81,32 @@ Filename: "{app}\{#McpExe}"; Parameters: "unregister"; Flags: runhidden waitunti
 [UninstallDelete]
 ; 설정과 로그는 지운다. 사용자의 문서(서재 폴더)는 절대 건드리지 않는다.
 Type: filesandordirs; Name: "{localappdata}\seojae"
+
+[Code]
+{ 설치가 끝나도 "Claude Desktop을 껐다 켜라"고 말해주는 곳이 없었다.
+  register 명령이 그 말을 출력하지만 runhidden 이라 아무도 못 본다.
+  설치 중에 Claude Desktop이 켜져 있으면 설정 파일을 다시 읽지 않으므로,
+  껐다 켜기 전까지는 도구가 안 붙는다. 그 말을 마지막 화면에서 한다. }
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if CurPageID = wpFinished then
+  begin
+    if WizardIsTaskSelected('claudereg') then
+      WizardForm.FinishedLabel.Caption :=
+        '서재를 설치했습니다.' + #13#10 + #13#10 +
+        'Claude Desktop이 켜져 있다면 한 번 껐다 켜세요.' + #13#10 +
+        '설정을 시작할 때만 읽기 때문에, 껐다 켜야 서재가 붙습니다.' + #13#10 + #13#10 +
+        '그다음 Claude에게 이렇게 물어보세요:' + #13#10 +
+        '    "서재에 어떤 책장이 있어?"' + #13#10 + #13#10 +
+        '시작 메뉴의 [서재]를 누르면 문서를 넣고 정리하는 창이 열립니다.'
+    else
+      WizardForm.FinishedLabel.Caption :=
+        '서재를 설치했습니다.' + #13#10 + #13#10 +
+        'Claude Desktop 등록은 건너뛰었습니다. 나중에 붙이려면' + #13#10 +
+        '설치 폴더에서 이 명령을 실행하세요:' + #13#10 +
+        '    seojae-mcp.exe register' + #13#10 + #13#10 +
+        '시작 메뉴의 [서재]를 누르면 창이 열립니다. 창만 쓰는 데는' + #13#10 +
+        '등록이 필요 없습니다.';
+  end;
+end;
