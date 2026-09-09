@@ -26,3 +26,6 @@ Thumbs.db
 
 # 자격증명 — 절대 커밋 금지
 .secrets/
+
+# 측정 결과 — 사람이 읽는 최근.md 만 남기고 시각별 JSON은 안 넣는다
+bench/results/*.json
