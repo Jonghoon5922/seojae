@@ -19,11 +19,49 @@ from __future__ import annotations
 
 import sys
 
-PASSTHROUGH = {"register": "mcp-register", "unregister": "mcp-unregister"}
+PASSTHROUGH = {
+    "register": "mcp-register",
+    "unregister": "mcp-unregister",
+    "mcp-list": "mcp-list",
+    "list": "mcp-list",
+}
+
+
+USAGE = """서재 (Seojae) — MCP 서버
+
+Claude Desktop·Cursor 같은 앱이 이 파일을 띄워 서재를 검색한다.
+
+  seojae-mcp.exe                     MCP 서버 (앱이 이렇게 부른다)
+  seojae-mcp.exe <폴더>               그 폴더를 서재로 삼아 서버
+
+연결:
+  seojae-mcp.exe mcp-list            어느 앱에 연결돼 있는지 훑는다
+  seojae-mcp.exe register            Claude Desktop에 연결
+  seojae-mcp.exe register cursor     다른 앱에 연결 (이름은 mcp-list 로)
+  seojae-mcp.exe unregister cursor   연결 해제
+
+앱 창(시작 메뉴 → 서재)의 설정 탭에서 버튼으로도 연결할 수 있다.
+그쪽이 쉽다 — 아는 앱을 목록으로 보여주고 상태도 같이 나온다.
+
+그 밖의 명령(readings, status, search 등)은:
+  seojae-mcp.exe --commands
+"""
 
 
 def main() -> int:
     args = sys.argv[1:]
+
+    # `--help` 를 서재 폴더 이름으로 넘기면 serve 의 도움말만 나온다.
+    # register 나 mcp-list 가 있는지 알 길이 없어진다.
+    if args and args[0] in ("--help", "-h", "/?"):
+        print(USAGE)
+        return 0
+    if args and args[0] == "--commands":
+        sys.argv = ["seojae-mcp", "--help"]
+        from seojae.cli import app
+
+        app()
+        return 0
 
     if args and args[0] in PASSTHROUGH:
         rest = list(args[1:])
