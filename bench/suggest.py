@@ -14,6 +14,10 @@
 3. **서재가 쓰는 낱말을 주석으로 붙인다.** 네가 질문을 쓸 때 이 어휘 안에서 써야
    찾힌다. 서재에 없는 말로 물으면 헛걸음이 된다.
 
+4. **대출 기록에서 실제로 물어본 말을 끌어온다.** 이게 가장 좋은 재료다 —
+   지어낸 질문이 아니라 Claude가 진짜로 검색한 말이기 때문이다. 서재를 쓰면
+   쓸수록 이 목록이 좋아진다.
+
 나머지(대조군, 형식)는 채워준다. **질문은 네가 고쳐라.**
 """
 
@@ -63,6 +67,25 @@ def check(conn, ask: str, collection: str) -> tuple[int, bool]:
     hits = search(conn, ask, collection=collection, top_k=5)
     counts = term_document_counts(conn, ask, collection)
     return len(hits), bool(search_hint(conn, ask, hits, collection, counts=counts))
+
+
+def from_ledger(conn, limit: int = 8) -> list[tuple[str, int, bool]]:
+    """실제로 물어본 말. (검색어, 결과 수, 헛걸음이었나)
+
+    **지어낸 질문보다 이쪽이 낫다.** 서재를 쓸수록 좋아진다.
+    같은 말을 여러 번 물었으면 그만큼 중요한 질문이므로 앞에 둔다.
+    """
+    try:
+        rows = conn.execute(
+            "SELECT query, MAX(hits) AS hits, MAX(note <> '') AS missed, "
+            "COUNT(*) AS times FROM readings "
+            "WHERE tool = 'search' AND query <> '' "
+            "GROUP BY query ORDER BY times DESC, MAX(id) DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    except Exception:
+        return []
+    return [(r["query"], r["hits"], bool(r["missed"])) for r in rows]
 
 
 def suggest(root: Path) -> str:
@@ -147,6 +170,35 @@ def suggest(root: Path) -> str:
                 "    expect:",
                 "      hint: true",
             ]
+
+    실제로_물어본_것 = from_ledger(conn)
+    if 실제로_물어본_것:
+        out += [
+            "",
+            "",
+            "  # ── 실제로 물어본 말 (대출 기록에서) ──",
+            "  # 지어낸 질문이 아니라 Claude가 진짜로 검색한 말이다. 가장 좋은 재료다.",
+        ]
+        for ask, hits, missed in 실제로_물어본_것:
+            out += ["", f"  - ask: {ask}"]
+            if missed:
+                out += [
+                    f"    why: 실제로 물어봤는데 헛걸음이었다 (결과 {hits}건, 힌트 뜸)",
+                    "    expect:",
+                    "      hint: true",
+                ]
+            elif hits == 0:
+                out += [
+                    "    why: 실제로 물어봤는데 아무것도 안 나왔다",
+                    "    known_gap: 서재에 이 주제가 없다. 채우든지 질문을 바꾸든지",
+                ]
+            else:
+                out += [
+                    f"    why: 실제로 물어본 말. 지금 {hits}건 찾힌다",
+                    "    expect:",
+                    f"      min_hits: {min(hits, 3)}",
+                    "      hint: false",
+                ]
 
     out += [
         "",
