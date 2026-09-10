@@ -2,8 +2,7 @@
   "mcpServers": {
     "seojae": {
       "command": "uv",
-      "args": ["run", "seojae", "serve", "testdata/seojae"],
-      "cwd": "C:/project/bookshelf"
+      "args": ["run", "seojae", "serve", "testdata/seojae"]
     }
   }
 }
